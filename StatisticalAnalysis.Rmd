@@ -1,0 +1,1989 @@
+---
+title: "Supplementary material 3" 
+subtitle: "The Big Picture: a Comparative Analysis of the Social Determinants of Health Across Europe"
+output: pdf_document
+date: ""
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+# Libraries loading
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lme4)
+library(readxl)
+library(labelled)
+```
+
+# Data arrangements
+
+## Loading of the original dataset. 
+
+```{r}
+# Data downloaded from: https://doi.org/10.21338/ess11e04_1
+ESS11FullRaw <- read.csv(file.path("datasets_raw","ESS11e04_1.csv"))
+```
+
+## Recoding of some of the variables of analysis
+
+```{r}
+# NAs for some variables
+ESS11FullRaw$cgtsmok[ESS11FullRaw$cgtsmok == 7 | ESS11FullRaw$cgtsmok == 8 | ESS11FullRaw$cgtsmok == 9] <- NA
+ESS11FullRaw$etfruit[ESS11FullRaw$etfruit == 77 | ESS11FullRaw$etfruit == 88 | ESS11FullRaw$etfruit == 99] <- NA
+ESS11FullRaw$eatveg[ESS11FullRaw$eatveg == 77 | ESS11FullRaw$eatveg == 88 | ESS11FullRaw$eatveg == 99] <- NA
+ESS11FullRaw$mbtru[ESS11FullRaw$mbtru == 7 | ESS11FullRaw$mbtru == 8 | ESS11FullRaw$mbtru == 9] <- NA
+ESS11FullRaw$hincfel[ESS11FullRaw$hincfel == 7 | ESS11FullRaw$hincfel == 8 | ESS11FullRaw$hincfel == 9] <- NA
+ESS11FullRaw$alcfreq[ESS11FullRaw$alcfreq == 77 | ESS11FullRaw$alcfreq == 88 | ESS11FullRaw$alcfreq == 99] <- NA
+ESS11FullRaw$medtrun[ESS11FullRaw$medtrun == 7 | ESS11FullRaw$medtrun == 8 | ESS11FullRaw$medtrun == 9] <- NA
+ESS11FullRaw$volunfp[ESS11FullRaw$volunfp == 7 | ESS11FullRaw$volunfp == 8 | ESS11FullRaw$volunfp == 9] <- NA
+# Sex ----
+
+ESS11Rec <- ESS11FullRaw %>% 
+  mutate(
+    gender = case_when( 
+      gndr == 1 ~ 0,  # Male becomes 0
+      gndr == 2 ~ 1   # Female becomes 1
+    )
+  )%>% 
+  mutate(
+    gender = set_value_labels(
+      gender,
+      labels = c("Male" = 0, "Female" = 1)
+    )
+  )
+
+# Age ----
+
+ESS11Rec <- ESS11Rec %>%
+  mutate(
+    age = 2024 - yrbrn
+  ) 
+
+
+# RegionWelfare ----
+
+ESS11Rec <- ESS11Rec %>%
+  mutate(regionWelfare = case_when(
+    cntry %in% c("FI", "IS", "NO", "SE") ~ 1,  # Scandinavian
+    cntry %in% c("GB", "IE") ~ 2,  # Anglo-Saxon
+    cntry %in% c("AT", "BE", "CH", "DE", "FR","IL", "NL") ~ 3,  # Bismarkian
+    cntry %in% c("BG", "EE", "HU", "HR", "LT", "LV","ME","PL", "RS", "SI", "SK", "UA") ~ 4,  #  Eastern European 
+    cntry %in% c("ES", "GR", "IT", "PT","CY") ~ 5,  # Southern
+    TRUE ~ 99  
+  )) %>%
+  mutate(regionWelfare = set_value_labels(
+    regionWelfare,
+    labels = c("Scandinavian" = 1, "Anglo-Saxon" = 2, "Mismarkian" = 3, "Eastern European " = 4,"Southern" = 5, "Other" = 99)
+  ))
+
+# Education ----
+
+## eiscedV 
+ESS11Rec <- ESS11Rec %>%
+  mutate(
+    eiscedV = case_when(
+      eisced == 0 ~ eisced,
+      eisced == 1 ~ eisced,
+      eisced == 2 ~ eisced,
+      eisced == 3 ~ eisced,
+      eisced == 4 ~ 3,
+      eisced == 5 ~ 4,
+      eisced == 6 ~ 5,
+      eisced == 7 ~ 5,
+      eisced == 55 ~ NA_real_
+    )
+  ) %>% 
+  mutate(
+    eiscedV = set_value_labels(
+      eiscedV,
+      labels = c("Not possible to harmonise into ES-ISCED" = 0, "ES-ISCED I , less than lower secondary" = 1, 
+                 "ES-ISCED II, lower secondary" = 2, "ES-ISCED III" = 3, "ISCED IV and ISCED v" = 4, "ISCED VI and over" = 5, 
+                 "Other" = 55,"refusal" = 77, "Don't know" = 88, "No answer" = 99 ) 
+    )
+  )
+
+# eisced2 
+ESS11Rec <- ESS11Rec %>% 
+  mutate( eisced2 = if_else(eiscedV < 3, 1, 0)) #eisced2 1 =	ES-ISCED IIIb, lower tier upper secondary OR lower, eisced2 0 = upper secondary or higher
+
+# Health behaviours ----
+
+## Smoking ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(
+    cgtsmoker = case_when(
+      cgtsmok == 1 ~ 5,
+      cgtsmok == 2 ~ 4,
+      cgtsmok == 3 ~ 3,
+      cgtsmok == 4 ~ 2,
+      cgtsmok == 5 ~ 1,
+      cgtsmok == 6 ~ 0,
+      cgtsmok == 7 ~ 7,
+      cgtsmok == 8 ~ 8
+    ) #cgtsmoke = 5 means i smoke daily
+  ) %>% 
+  mutate( 
+    cgtsmoker = set_value_labels(
+      cgtsmoker, 
+      labels = c("never smoked" = 0, "few times" = 1, "not anymore" = 2, "not every day" = 3, "<= 9/day, daily" = 4, ">=10/day, daily" = 5, "Refusal" = 7, "Don't Know" = 8)
+    )
+  )
+
+## Alcohol ----
+
+ESS11Rec <- ESS11Rec %>% 
+  mutate(
+    alcoholfreq = case_when(
+      alcfreq == 1 ~ 6,
+      alcfreq == 2 ~ 5,
+      alcfreq == 3 ~ 4,
+      alcfreq == 4 ~ 3,
+      alcfreq == 5 ~ 2,
+      alcfreq == 6 ~ 1,
+      alcfreq == 7 ~ 0,
+      alcfreq == 77 ~ 77,
+      alcfreq == 88 ~ 88) # alcoholfreq 6 means every day
+  ) %>% 
+  mutate(
+    alcoholfreq = set_value_labels(
+      alcoholfreq, labels = c("Never" = 0, "Less than once a month" = 1, "Once a month" = 2,"2-3 times a month" = 3, "Once a week" = 4, "Several times a week" = 5, "Every day" = 6, "Refusal" = 7, "Don't Know" = 8, "No answer" = 9)
+    )
+  )
+
+
+## Physical activity ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(
+    dosportr = case_when(
+      dosprt == 0 ~ 7,
+      dosprt == 1 ~ 6, 
+      dosprt == 2 ~ 5,
+      dosprt == 3 ~ 4,
+      dosprt == 4 ~ 3,  
+      dosprt == 5 ~ 2,  
+      dosprt == 6 ~ 1 , 
+      dosprt == 7 ~ 0 
+    )
+  ) # level of risk! 0 = made exercise everyday last week. 7 = never exercised
+
+
+## Fruit and Vegetables ----
+
+ESS11Rec <- ESS11Rec %>% 
+  mutate(etfruitveg = (etfruit + eatveg)-2) # the higher value, the less fruit and veg being eaten
+
+
+
+# Psychosocial ----  
+
+## Control life ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(cntrlife = case_when(
+    ctrlife == 0 ~ 10,
+    ctrlife == 1 ~ 9,
+    ctrlife == 2 ~ 8,
+    ctrlife == 3 ~ 7,
+    ctrlife == 4 ~ 6,
+    ctrlife == 5 ~ 5,
+    ctrlife == 6 ~ 4,
+    ctrlife == 7 ~ 3,
+    ctrlife == 8 ~ 2,
+    ctrlife == 9 ~ 1,
+    ctrlife == 10 ~ 0,
+  )) # 0 is complete cntrl, 10 is no ctrl
+
+
+## Life satisfaction ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(stflifer = case_when(
+    stflife == 0 ~ 10,
+    stflife == 1 ~ 9,
+    stflife == 2 ~ 8,
+    stflife == 3 ~ 7,
+    stflife == 4 ~ 6,
+    stflife == 5 ~ 5,
+    stflife == 6 ~ 4,
+    stflife == 7 ~ 3,
+    stflife == 8 ~ 2,
+    stflife == 9 ~ 1,
+    stflife == 10 ~ 0,
+  )) %>%  # 0 is Extremely satisfied, 10 is Extremely dissatisfied
+  mutate(stflifer01 = stflifer/10)
+
+
+## Childhood conflicts ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate( #conflict
+    conflpplh = case_when(
+      cnfpplh == 1 ~ 4,
+      cnfpplh == 2 ~ 3, 
+      cnfpplh == 3 ~ 2,
+      cnfpplh == 4 ~ 1,
+      cnfpplh == 5 ~ 0,
+    ) # conflpplh = 4 means always
+  ) %>%   
+  mutate(
+    conflpplh = set_value_labels(
+      conflpplh, labels = c("Never" = 0, "Hardly ever" = 1, "Sometimes" = 2,"Often" = 3,"Always" = 4, 
+                            "Refusal" = 7, "Don't Know" = 8, "No answer" = 9)
+    )
+  ) 
+
+# Employment conditions ----
+
+## Unemployment ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(unemplD = if_else((uempli == 1)|(uempla == 1) , 1, 0)) # unemplD 1 means unemployed, either looking or not looking for a job
+
+
+## Ergonomic ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(ergonomic = rowSums(across(
+    c(jbexpmc, jbexpml, jbexpti, jbexpvi), 
+    ~ .x == 1), 
+    na.rm = TRUE)) 
+
+## Material ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(material = rowSums(across(c(jbexebs, jbexecp, jbexera, jbexevc, jbexevh, jbexevl),
+    ~ .x == 1), 
+    na.rm = TRUE))
+
+## Job control ---- 
+ESS11Rec <- ESS11Rec %>% 
+  mutate(wkorg = case_when(
+    wkdcorga == 0 ~ 10,
+    wkdcorga == 1 ~ 9,
+    wkdcorga == 2 ~ 8,
+    wkdcorga == 3 ~ 7,
+    wkdcorga == 4 ~ 6,
+    wkdcorga == 5 ~ 5,
+    wkdcorga == 6 ~ 4,
+    wkdcorga == 7 ~ 3,
+    wkdcorga == 8 ~ 2,
+    wkdcorga == 9 ~ 1,
+    wkdcorga == 10 ~ 0,
+  ))
+
+
+## Job organization decisions ---- 
+ESS11Rec <- ESS11Rec %>% 
+  mutate(iorgactr = case_when(
+    iorgact == 0 ~ 10,
+    iorgact == 1 ~ 9,
+    iorgact == 2 ~ 8,
+    iorgact == 3 ~ 7,
+    iorgact == 4 ~ 6,
+    iorgact == 5 ~ 5,
+    iorgact == 6 ~ 4,
+    iorgact == 7 ~ 3,
+    iorgact == 8 ~ 2,
+    iorgact == 9 ~ 1,
+    iorgact == 10 ~ 0,
+    
+  ))
+
+# member of a trade union or similar ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate (mbtruD = if_else(mbtru == 3 | mbtru == 2, 1, 0)) # no, or not currently
+
+
+# Material conditions ----
+
+## Financial difficulties growing up ----
+
+ESS11Rec <- ESS11Rec %>% 
+  mutate( 
+    fndf = case_when(
+      fnsdfml == 1 ~ 4,
+      fnsdfml == 2 ~ 3, 
+      fnsdfml == 3 ~ 2,
+      fnsdfml == 4 ~ 1,
+      fnsdfml == 5 ~ 0,
+    ) # fndf 4 means 	Always	inancial difficulties growing up
+  ) %>% 
+  mutate(
+    fndf = set_value_labels(
+      fndf, labels = c("Never" = 0, "Hardly ever" = 1, "Sometimes" = 2,"Often" = 3,"Always" = 4, "Refusal" = 7, "Don't Know" = 8, "No answer" = 9)
+    )
+  )
+
+
+## Housing problems ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(housing = rowSums(across(
+    c(paccmoro, paccdwlr, pacclift, paccnbsh, paccocrw, paccxhoc, paccnois, paccinro), 
+    ~ .x == 1), 
+    na.rm = TRUE)) 
+
+
+# Social Capital ----
+
+## Meeting people ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(socialmeet = case_when(
+    sclmeet == 1 ~ 6,
+    sclmeet == 2 ~ 5,
+    sclmeet == 3 ~ 4,
+    sclmeet == 4 ~ 3,
+    sclmeet == 5 ~ 2,
+    sclmeet == 6 ~ 1,
+    sclmeet == 7 ~ 0,
+  )) # risk! socialmeet 0 = means everyday meetings, sclmeet 6 == never
+
+## people with whom to talk ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(inperdisc = case_when(
+    inprdsc == 0 ~ 6,
+    inprdsc == 1 ~ 5,
+    inprdsc == 2 ~ 4,
+    inprdsc == 3 ~ 3,
+    inprdsc == 4 ~ 2,
+    inprdsc == 5 ~ 1,
+    inprdsc == 6 ~ 0,
+  )) # risk!  inperdisc 0 >= 10 ppl to talk, inperdisc 6 = none
+
+
+## volunteered  ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate (volunfpr = if_else(volunfp == 2, 1, 0))
+
+
+## People can be trusted ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(ppltrust = case_when(
+    ppltrst == 0 ~ 10,
+    ppltrst == 1 ~ 9,
+    ppltrst == 2 ~ 8,
+    ppltrst == 3 ~ 7,
+    ppltrst == 4 ~ 6,
+    ppltrst == 5 ~ 5,
+    ppltrst == 6 ~ 4,
+    ppltrst == 7 ~ 3,
+    ppltrst == 8 ~ 2,
+    ppltrst == 9 ~ 1,
+    ppltrst == 10 ~ 0,
+  ))  # risk! ppltrust 0 is 	Most people can be trusted, 10 is You can't be too careful
+
+
+## Politicians can be trusted ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(trustplt = case_when(
+    trstplt == 0 ~ 10,
+    trstplt == 1 ~ 9,
+    trstplt == 2 ~ 8,
+    trstplt == 3 ~ 7,
+    trstplt == 4 ~ 6,
+    trstplt == 5 ~ 5,
+    trstplt == 6 ~ 4,
+    trstplt == 7 ~ 3,
+    trstplt == 8 ~ 2,
+    trstplt == 9 ~ 1,
+    trstplt == 10 ~ 0,
+  )) 
+
+
+# Healthcare ----
+
+## Unpaid care ---- 
+ESS11Rec <- ESS11Rec %>% 
+  mutate(hlpfmhrr = case_when( ## helps, and does it more than 10hrs/week
+    hlpfmhr == 1 ~ hlpfmhr,
+    hlpfmhr == 2 ~ hlpfmhr,
+    hlpfmhr == 3 ~ hlpfmhr,
+    hlpfmhr == 4 ~ hlpfmhr,
+    hlpfmhr == 5 ~ hlpfmhr,
+    hlpfmhr == 6 ~ hlpfmhr,
+    hlpfmhr == 55 ~ 0,
+      ))
+
+ESS11Rec <- ESS11Rec %>% 
+  mutate(
+    hlpfmhrrcomb = case_when(
+      hlpfmly == 2 ~ 0,
+      hlpfmhrr == 0 ~ hlpfmhrr, 
+      hlpfmhrr > 0 ~ hlpfmhrr )
+  ) 
+
+## HC unmet need ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(
+    medtrun2 = case_when(
+      medtrun == 1 ~ 1,
+      medtrun == 2 ~ 0, 
+      medtrun == 7 ~ 7,
+      medtrun == 8 ~ 8,
+    ) 
+  ) %>% 
+  mutate(
+    medtrun2 = set_value_labels(
+      medtrun2, labels = c("unmet need" = 1, "No unmet need" = 0,  "Refusal" = 7, "Don't Know" = 8)
+    )
+  )
+
+
+
+## General Practitioner ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(dshltgpr = if_else(dshltgp == 0, 1, 0)) #not discussed, dshltgpr = 1, discussed = 0
+
+## Medical specialist ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(dshltmsr = if_else(dshltms == 0, 1, 0))
+
+
+
+# Identification number per row ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(id_row = row_number())
+
+```
+
+```{r}
+# Deletion of Israel
+ESS11RecEu <- ESS11Rec %>% 
+  filter(cntry != "IL")
+
+# Produce a vector of all countries
+country_list <- unique(ESS11RecEu$cntry)
+
+# Prepare region and regionWelfare datasets to join later with the Block_scores datasets 
+country_regionWelfare <- ESS11RecEu %>%
+  dplyr::select(cntry, regionWelfare) %>%
+  distinct()
+
+WR_list <- country_regionWelfare %>% 
+  distinct(regionWelfare) %>% 
+  filter(regionWelfare != 99) %>%
+  pull(regionWelfare) %>%
+  sort()
+WR_labels <- c("1" = "Scandinavian", "2" = "Anglo-Saxon", "3" = "Bismarckian", 
+               "4" = "Eastern European", "5" = "Southern")
+```
+
+
+# Statistical analysis
+
+## Additional libraries for statistical analysis
+
+```{r}
+library(survey)
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lme4)
+library(readxl)
+library(labelled)
+library(openxlsx)
+library(ltm)
+library(psych)
+library(ggplot2)
+library(forcats)
+library(fmsb)
+library(janitor)
+library(effectsize)
+library(car)
+library(dendextend)
+```
+
+## PCA: Composite risk score
+
+### Preparations
+```{r}
+# Create a DataSet 
+pca_variables <- c("id_row", "cntry", "regionWelfare", "psu", "stratum", "gender", "pspwght", "anweight", "eisced2", "material", "ergonomic", "wkorg", "iorgactr", "unemplD", "mbtruD", "housing", "fndf", "hincfel", "medtrun2", "hlpfmhrrcomb", "dshltgpr","dshltmsr" , "etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq", "cntrlife", "stflifer","conflpplh", "socialmeet", "inperdisc", "ppltrust", "trustplt", "volunfpr")
+
+# Check NAs
+colSums(is.na(ESS11RecEu[,pca_variables])) 
+
+# Make dataset
+pca_df <- ESS11RecEu %>% 
+  dplyr::select(all_of(pca_variables))
+
+# Include sex as factor
+pca_df <- pca_df %>% 
+  mutate(sex = factor(gender, levels = c(0,1), labels = c("Men", "Women")))
+```
+
+
+  
+### Education
+```{r}
+#Step 0: Make a df only for the subset of variables (to drop NAs)
+index_df_edu <- pca_df %>% 
+  drop_na(c("id_row","eisced2") ) 
+
+
+#Step 1: Calculate Z-Scores = standardized comparative indicator
+index_df_edu_scores <- index_df_edu %>%
+  mutate(
+    index_edu = as.numeric(scale(eisced2))
+  )
+
+#Step 2: Define survey design
+index_design_edu <- svydesign(
+  ids = ~psu,
+  strata = ~stratum,
+  weights = ~pspwght,
+  data = index_df_edu_scores,
+  nest = TRUE
+)
+options(survey.lonely.psu = "adjust")
+
+# Step 3: Estimate means with confidence intervals
+
+#By sex
+edu_index_bysex <- svyby( 
+  ~index_edu,
+  ~cntry + sex, 
+  index_design_edu,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)
+
+#pooled sex
+edu_index_pooledsex <- svyby(
+  ~index_edu,
+  ~cntry,
+  index_design_edu,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")  
+
+
+# Europe pooled (mean of countries)
+edu_index_pooledCountry <- mean(edu_index_pooledsex$index_edu, na.rm = TRUE)
+
+# WR pooled (mean of countries)
+edu_index_pooledWR <-  edu_index_pooledsex %>%
+  left_join(country_regionWelfare, by = "cntry") %>% 
+  group_by(regionWelfare) %>%
+  summarise(
+    wr_mean_edu = mean(index_edu, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 4: Bind analyses, and add region info back in 
+edu_index_score <- bind_rows(
+  edu_index_pooledsex %>%  dplyr::select(cntry, index_edu, se, ci_l, ci_u, sex),
+  edu_index_bysex %>% dplyr::select(cntry, index_edu, se, ci_l, ci_u, sex)
+)
+
+edu_index_score <- edu_index_score %>% 
+  left_join(country_regionWelfare, by = "cntry")
+```
+
+### Employment Conditions
+
+```{r}
+#Step 0: Make a df only for the subset of variables (to drop NAs)
+pca_df_work <- pca_df %>% 
+  drop_na(c( "unemplD", "mbtruD", "material","ergonomic","wkorg","iorgactr") )
+
+# Calculate a manual reference Risk score to know the direction of risk (and correct the PCA sign if needed)
+risk_ref_work <- pca_df_work %>% 
+  mutate(across(
+    c("unemplD", "mbtruD", "material","ergonomic","wkorg","iorgactr"),
+    ~ (.-min(., na.rm=TRUE)) / (max(., na.rm=TRUE) - min(., na.rm=TRUE))
+  )) %>% 
+  transmute(risk_ref_psych = rowMeans(across(c("unemplD", "mbtruD", "material","ergonomic","wkorg","iorgactr")), na.rm = TRUE)) %>% 
+  pull()
+
+
+# Step 1: Run PCA
+pca_work <- prcomp( pca_df_work[, c("material","ergonomic","unemplD","wkorg","iorgactr","mbtruD")], 
+                    scale. = TRUE
+)
+
+
+# Check if sign is aligned with risk reference 
+cor_work <- cor(pca_work$x[,1], risk_ref_work, use = "complete.obs")
+
+if(cor_work < 0){
+  pca_work$x[,1] <- -pca_work$x[,1]
+  pca_work$rotation[,1] <- -pca_work$rotation[,1]
+}
+
+print(pca_work)
+
+# Merge the result of the PCA to the initial pca_df 
+pca_df_work_scores <- pca_df_work %>%
+  mutate(pc1_work = pca_work$x[,1])
+
+
+# Step 2: Define survey design to be able to do survey-weighed calculations later on
+pca_design_work <- svydesign(
+  ids = ~psu,
+  strata = ~stratum,
+  weights = ~pspwght,
+  data = pca_df_work_scores,  
+  nest = TRUE
+)
+options(survey.lonely.psu = "adjust")
+
+
+# Step 3: Estimate means with confidence intervals
+
+#By sex
+work_pca_bysex <- svyby( 
+  ~pc1_work, 
+  ~cntry + sex, 
+  pca_design_work,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)
+
+#pooled sex 
+work_pca_pooledsex <- svyby(
+  ~pc1_work,
+  ~cntry,
+  pca_design_work,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All") 
+
+
+# Europe pooled (mean of countries)
+work_pca_pooledCountry <- mean(work_pca_pooledsex$pc1_work, na.rm = TRUE)
+
+# WR pooled (mean of countries) 
+work_pca_pooledWR <-  work_pca_pooledsex %>%
+  left_join(country_regionWelfare, by = "cntry") %>% 
+  group_by(regionWelfare) %>%
+  summarise(
+    wr_mean_work = mean(pc1_work, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 4: Bind analyses, and add region info back in (once per country)
+work_pca_score <- bind_rows(
+  work_pca_pooledsex %>%  dplyr::select(cntry, pc1_work, se, ci_l, ci_u, sex),
+  work_pca_bysex %>% dplyr::select(cntry, pc1_work, se, ci_l, ci_u, sex)
+)
+
+
+work_pca_score <- work_pca_score %>% 
+  left_join(country_regionWelfare, by = "cntry")
+
+```
+
+### Material circumstances
+
+```{r}
+#Step 0: Make a df only for the subset of variables (to drop NAs)
+pca_df_mat <- pca_df %>% 
+  drop_na(c("id_row","housing", "fndf", "hincfel") )
+
+
+# Calculate a manual reference Risk score to know the direction of risk (to correct the PCA sign if needed)
+risk_ref_mat <- pca_df_mat %>% 
+  mutate(across(
+    c("housing", "fndf", "hincfel"),
+    ~ (.-min(., na.rm=TRUE)) / (max(., na.rm=TRUE) - min(., na.rm=TRUE))
+  )) %>% 
+  transmute(risk_ref_psych = rowMeans(across(c("housing", "fndf", "hincfel")), na.rm = TRUE)) %>% 
+  pull()
+
+
+# Step 1: Run PCA 
+
+pca_mat <- prcomp(pca_df_mat[, c("housing", "fndf", "hincfel")], 
+                  scale. = TRUE
+)
+
+print(pca_mat)
+
+# Check if sign is aligned with risk reference
+
+cor_mat <- cor(pca_mat$x[,1], risk_ref_mat, use = "complete.obs")
+
+if(cor_mat < 0){
+  pca_mat$x[,1] <- -pca_mat$x[,1]
+  pca_mat$rotation[,1] <- -pca_mat$rotation[,1]
+}
+print(pca_mat)
+
+# Merge the result of the PCA to the initial pca_df
+pca_df_mat_scores <- pca_df_mat %>% 
+  mutate(pc1_mat = pca_mat$x[,1]) 
+
+
+# Step 2: Define survey design 
+pca_design_mat <- svydesign(
+  ids = ~psu,
+  strata = ~stratum,
+  weights = ~pspwght,
+  data = pca_df_mat_scores,
+  nest = TRUE
+)
+options(survey.lonely.psu = "adjust")
+
+
+# Step 3: Estimate means with confidence intervals
+
+#By sex
+mat_pca_bysex <- svyby( 
+  ~pc1_mat,
+  ~cntry + sex, 
+  pca_design_mat,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)
+
+#pooled sex 
+mat_pca_pooledsex <- svyby(
+  ~pc1_mat,
+  ~cntry,
+  pca_design_mat,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")   
+
+
+# Europe pooled (mean of countries)
+
+mat_pca_pooledCountry <- mean(mat_pca_pooledsex$pc1_mat, na.rm = TRUE)
+
+# WR pooled (mean of countries)
+
+mat_pca_pooledWR <-  mat_pca_pooledsex %>%
+  left_join(country_regionWelfare, by = "cntry") %>% 
+  group_by(regionWelfare) %>%
+  summarise(
+    wr_mean_mat = mean(pc1_mat, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 4: Bind analyses, and add region info back in (once per country) 
+
+mat_pca_score <- bind_rows(
+  mat_pca_pooledsex %>%  dplyr::select(cntry, pc1_mat, se, ci_l, ci_u, sex),
+  mat_pca_bysex %>% dplyr::select(cntry, pc1_mat, se, ci_l, ci_u, sex)
+)
+
+mat_pca_score <- mat_pca_score %>% 
+  left_join(country_regionWelfare, by = "cntry")
+
+```
+
+### HC access
+
+```{r}
+# Step 0: Make a df only for the subset of variables (to drop NAs)
+pca_df_hc <- pca_df %>% 
+  drop_na(c("medtrun2", "hlpfmhrrcomb", "dshltmsr", "dshltgpr") )
+
+# Calculate a manual reference Risk score to know the direction of risk (and correct the PCA sign if needed)
+risk_ref_hc <- pca_df_hc %>% 
+  mutate(across(c("medtrun2", "dshltmsr"),
+                ~ (.-min(., na.rm=TRUE)) / (max(., na.rm=TRUE) - min(., na.rm=TRUE))
+  )) %>% 
+  transmute(risk_ref_hc = rowMeans(across(c("medtrun2")), na.rm = TRUE)) %>% 
+  pull()
+
+
+# Step 1: Run PCA 
+pca_hc <- prcomp(pca_df_hc[, c( "medtrun2", "hlpfmhrrcomb", "dshltmsr", "dshltgpr")],
+                 scale. = TRUE) 
+
+print(pca_hc)
+
+#Check if sign is aligned with risk reference
+cor_hc <- cor(pca_hc$x[,1], risk_ref_hc, use = "complete.obs")
+
+if(cor_hc < 0){
+  pca_hc$x[,1] <- -pca_hc$x[,1]
+  pca_hc$rotation[,1] <- -pca_hc$rotation[,1]
+}
+print(pca_hc)
+
+# Merge the result of the PCA to the initial pca_df
+pca_df_hc_scores <- pca_df_hc %>% 
+  mutate(pc1_hc = pca_hc$x[,1]) 
+
+# Step 2: Define survey design
+pca_design_hc <- svydesign(
+  ids = ~psu,
+  strata = ~stratum,
+  weights = ~pspwght,
+  data = pca_df_hc_scores,
+  nest = TRUE
+)
+
+# Step 3: Estimate means with confidence intervals
+
+#By sex
+hc_pca_bysex <- svyby( 
+  ~pc1_hc,
+  ~cntry + sex, 
+  pca_design_hc,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)
+
+#pooled sex 
+hc_pca_pooledsex <- svyby(
+  ~pc1_hc,
+  ~cntry,
+  pca_design_hc,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")   
+
+
+# Europe pooled (mean of countries)
+
+hc_pca_pooledCountry <- mean(hc_pca_pooledsex$pc1_hc, na.rm = TRUE)
+
+# WR pooled (mean of countries)
+
+hc_pca_pooledWR <-  hc_pca_pooledsex %>%
+  left_join(country_regionWelfare, by = "cntry") %>% 
+  group_by(regionWelfare) %>%
+  summarise(
+    wr_mean_hc = mean(pc1_hc, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 4: Bind analyses, and add region info back in (once per country) 
+hc_pca_score <- bind_rows(
+  hc_pca_pooledsex %>%  dplyr::select(cntry, pc1_hc, se, ci_l, ci_u, sex),
+  hc_pca_bysex %>% dplyr::select(cntry, pc1_hc, se, ci_l, ci_u, sex)
+)
+
+hc_pca_score <- hc_pca_score %>% 
+  left_join(country_regionWelfare, by = "cntry")
+```
+
+### Behavioural
+
+```{r}
+# Step 0: Make a df only for the subset of variables (to drop NAs)
+pca_df_behav <- pca_df %>% 
+  drop_na(c("id_row","etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq"
+  ) )
+
+# Calculate a manual reference Risk score to know the direction of risk (and correct the PCA sign if needed);
+
+risk_ref_behav <- pca_df_behav %>% 
+  mutate(across(
+    c("etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq"),
+    ~ (.-min(., na.rm=TRUE)) / (max(., na.rm=TRUE) - min(., na.rm=TRUE))
+  )) %>% 
+  transmute(risk_ref_behav = rowMeans(across(c("etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq")), na.rm = TRUE)) %>% ## changed!!! , "alcoholbngcomb"
+  pull()
+
+
+# Step 1: Run PCA 
+
+pca_behav <- prcomp(pca_df_behav[, c("etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq")], 
+                    scale. = TRUE) 
+
+print(pca_behav)
+
+#Check if sign is aligned with risk reference
+cor_behav <- cor(pca_behav$x[,1], risk_ref_behav, use = "complete.obs")
+
+if(cor_behav < 0){
+  pca_behav$x[,1] <- -pca_behav$x[,1]
+  pca_behav$rotation[,1] <- -pca_behav$rotation[,1]
+}
+print(pca_behav)
+
+
+# Merge the result of the PCA to the initial pca_df
+
+pca_df_behav_scores <- pca_df_behav %>% 
+  mutate(pc1_behav = pca_behav$x[,1]) 
+
+
+# Step 2: Define survey design
+pca_design_behav <- svydesign(
+  ids = ~psu,
+  strata = ~stratum,
+  weights = ~pspwght,
+  data = pca_df_behav_scores,
+  nest = TRUE
+)
+
+
+# Step 3: Estimate means with confidence intervals
+
+#By sex
+behav_pca_bysex <- svyby( 
+  ~pc1_behav,
+  ~cntry + sex, 
+  pca_design_behav,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)
+
+#pooled sex 
+behav_pca_pooledsex <- svyby(
+  ~pc1_behav,
+  ~cntry,
+  pca_design_behav,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")   
+
+
+# Europe pooled (mean of countries)
+
+behav_pca_pooledCountry <- mean(behav_pca_pooledsex$pc1_behav, na.rm = TRUE)
+
+# WR pooled (mean of countries)
+
+behav_pca_pooledWR <-  behav_pca_pooledsex %>%
+  left_join(country_regionWelfare, by = "cntry") %>% 
+  group_by(regionWelfare) %>%
+  summarise(
+    wr_mean_behav = mean(pc1_behav, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# Step 4: Bind analyses 
+
+behav_pca_score <- bind_rows(
+  behav_pca_pooledsex %>%  dplyr::select(cntry, pc1_behav, se, ci_l, ci_u, sex),
+  behav_pca_bysex %>% dplyr::select(cntry, pc1_behav, se, ci_l, ci_u, sex)
+)
+
+
+behav_pca_score <- behav_pca_score %>% 
+  left_join(country_regionWelfare, by = "cntry")
+
+```
+
+### Psychosocial
+
+```{r}
+
+# Step 0: Make a df only for the subset of variables (to drop NAs)
+pca_df_psych <- pca_df %>% 
+  drop_na(c("id_row","conflpplh", "cntrlife", "stflifer"))
+
+
+# Calculate a manual reference Risk score to know the direction of risk (and correct the PCA sign if needed)
+
+risk_ref_psych <- pca_df_psych %>% 
+  mutate(across(
+    c("conflpplh", "cntrlife", "stflifer"),
+    ~ (.-min(., na.rm=TRUE)) / (max(., na.rm=TRUE) - min(., na.rm=TRUE))
+  )) %>% 
+  transmute(risk_ref_psych = rowMeans(across(c("conflpplh", "cntrlife", "stflifer")), na.rm = TRUE)) %>% 
+  pull()
+
+
+# Step 1: Run PCA 
+pca_psych <- prcomp(pca_df_psych [, c( "conflpplh","cntrlife","stflifer")], 
+                    scale. = TRUE)
+
+print(pca_psych)
+
+#Check if sign is aligned with risk reference
+cor_psych <- cor(pca_psych$x[,1], risk_ref_psych, use = "complete.obs")
+
+if(cor_psych < 0){
+  pca_psych$x[,1] <- -pca_psych$x[,1]
+  pca_psych$rotation[,1] <- -pca_psych$rotation[,1]
+}
+print(pca_psych)
+
+# Merge the result of the PCA to the initial pca_df
+
+pca_df_psych_scores <- pca_df_psych %>% 
+  mutate(pc1_psych = pca_psych$x[,1]) 
+
+
+# Step 2: Define survey design
+pca_design_psych <- svydesign(
+  ids = ~psu,
+  strata = ~stratum,
+  weights = ~pspwght,
+  data = pca_df_psych_scores,
+  nest = TRUE
+)
+
+# Step 3: Estimate means with confidence intervals
+
+#By sex
+psych_pca_bysex <- svyby( 
+  ~pc1_psych,
+  ~cntry + sex, 
+  pca_design_psych,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)
+
+#pooled sex 
+psych_pca_pooledsex <- svyby(
+  ~pc1_psych,
+  ~cntry,
+  pca_design_psych,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")   # add label so we can row-bind
+
+# Europe pooled (mean of countries)
+
+psych_pca_pooledCountry <- mean(psych_pca_pooledsex$pc1_psych, na.rm = TRUE)
+
+# WR pooled (mean of countries)
+
+psych_pca_pooledWR <-  psych_pca_pooledsex %>%
+  left_join(country_regionWelfare, by = "cntry") %>% 
+  group_by(regionWelfare) %>%
+  summarise(
+    wr_mean_psych = mean(pc1_psych, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 4: Bind analyses, and add region info back in (once per country) 
+
+psych_pca_score <- bind_rows(
+  psych_pca_pooledsex %>%  dplyr::select(cntry, pc1_psych, se, ci_l, ci_u, sex),
+  psych_pca_bysex %>% dplyr::select(cntry, pc1_psych, se, ci_l, ci_u, sex)
+)
+
+
+psych_pca_score <- psych_pca_score %>% 
+  left_join(country_regionWelfare, by = "cntry")
+
+```
+
+### Social Capital
+
+```{r}
+# Step 0: Make a df only for the subset of variables (to drop NAs)
+pca_df_sc <- pca_df %>% 
+  drop_na(c("id_row","socialmeet", "inperdisc", "ppltrust", "trustplt", "volunfpr") )
+
+
+# Calculate a manual reference Risk score to know the direction of risk (and correct the PCA sign if needed)
+
+risk_ref_sc <- pca_df_sc %>% 
+  mutate(across(
+    c("socialmeet", "inperdisc", "ppltrust", "trustplt", "volunfpr"),
+    ~ (.-min(., na.rm=TRUE)) / (max(., na.rm=TRUE) - min(., na.rm=TRUE))
+  )) %>% 
+  transmute(risk_ref_sc = rowMeans(across(c("socialmeet", "inperdisc", "ppltrust", "trustplt", "volunfpr")), na.rm = TRUE)) %>% 
+  pull()
+
+
+
+# Step 1: Run PCA 
+
+pca_sc <- prcomp(pca_df_sc[, c( "socialmeet", "inperdisc", "ppltrust", "trustplt","volunfpr")], 
+                 scale. = TRUE) # Run PCA on selected variables
+
+print(pca_sc)
+
+# Check if sign is aligned with risk reference
+cor_sc <- cor(pca_sc$x[,1], risk_ref_sc, use = "complete.obs")
+
+if(cor_sc < 0){
+  pca_sc$x[,1] <- -pca_sc$x[,1]
+  pca_sc$rotation[,1] <- -pca_sc$rotation[,1]
+}
+print(pca_sc)
+
+
+# Merge pca_df_hc_scores to have the individual PC
+pca_df_sc_scores <- pca_df_sc %>% 
+  mutate(pc1_sc = pca_sc$x[,1]) 
+
+
+# Step 2: Define survey design
+pca_design_sc <- svydesign(
+  ids = ~psu,
+  strata = ~stratum,
+  weights = ~pspwght,
+  data = pca_df_sc_scores,
+  nest = TRUE
+)
+
+
+# Step 3: Estimate means with confidence intervals
+
+#By sex
+sc_pca_bysex <- svyby( 
+  ~pc1_sc,
+  ~cntry + sex, 
+  pca_design_sc,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)
+
+#pooled sex 
+sc_pca_pooledsex <- svyby(
+  ~pc1_sc,
+  ~cntry,
+  pca_design_sc,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")   # add label so we can row-bind
+
+
+# Europe pooled (mean of countries)
+
+sc_pca_pooledCountry <- mean(sc_pca_pooledsex$pc1_sc, na.rm = TRUE)
+
+# WR pooled (mean of countries)
+
+sc_pca_pooledWR <-  sc_pca_pooledsex %>%
+  left_join(country_regionWelfare, by = "cntry") %>% 
+  group_by(regionWelfare) %>%
+  summarise(
+    wr_mean_sc = mean(pc1_sc, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 4: Bind analyses, and add region info back in (once per country) 
+
+sc_pca_score <- bind_rows(
+  sc_pca_pooledsex %>%  dplyr::select(cntry, pc1_sc, se, ci_l, ci_u, sex),
+  sc_pca_bysex %>% dplyr::select(cntry, pc1_sc, se, ci_l, ci_u, sex)
+)
+
+sc_pca_score <- sc_pca_score %>% 
+  left_join(country_regionWelfare, by = "cntry")
+```
+
+## PLOTS: PCA Composite Scores (Supplementary material)
+
+### Education
+
+```{r}
+# Get positions of countries per regime
+regime_spans <- edu_index_score %>% 
+  arrange(regionWelfare, cntry) %>%
+  distinct(cntry, regionWelfare) %>%
+  mutate(cntry_id = as.numeric(factor(cntry, levels = unique(cntry)))) %>%
+  group_by(regionWelfare) %>%
+  summarise(x_start = min(cntry_id), x_end = max(cntry_id), .groups = "drop")
+
+# Get positions of the lines for regime averages 
+regime_spans_eduWR <- regime_spans %>% 
+  left_join(edu_index_pooledWR, by = "regionWelfare")
+
+#plot
+ggplot(edu_index_score %>%  
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = index_edu, ymin = ci_l, ymax = ci_u, color = sex)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(sex == "All", 1, 0.4)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "Men" = "#1F77B4", "Women" = "#E69F00"),
+    breaks = c("All", "Men", "Women")
+  ) +
+  scale_alpha_identity() + 
+  geom_hline(yintercept = edu_index_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_eduWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_edu, yend = wr_mean_edu),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  geom_segment( 
+    data = regime_spans,
+    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
+    inherit.aes = FALSE, linewidth = 1.2, color = "grey40"
+  ) +
+  
+  coord_cartesian(ylim = c(-1.5, 1.5)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Education disadvantage",
+    y = "Education Score (standardized index)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),   
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+
+ggsave("Figures\\CompositeScores\\eduWR_psp.png", width = 6, height = 4, dpi = 300)
+```
+
+### Employment Conditions
+
+```{r}
+# Get positions of countries per regime
+regime_spans <- work_pca_score %>%
+  arrange(regionWelfare, cntry) %>%
+  distinct(cntry, regionWelfare) %>%
+  mutate(cntry_id = as.numeric(factor(cntry, levels = unique(cntry)))) %>%
+  group_by(regionWelfare) %>%
+  summarise(x_start = min(cntry_id), x_end = max(cntry_id), .groups = "drop")
+
+
+# Get positions of the lines for regime averages 
+regime_spans_workWR <- regime_spans %>% 
+  left_join(work_pca_pooledWR, by = "regionWelfare")
+
+
+#plot
+
+ggplot(work_pca_score %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_work, ymin = ci_l, ymax = ci_u, color = sex)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(sex == "All", 1, 0.4)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "Men" = "#1F77B4", "Women" = "#E69F00"),
+    breaks = c("All", "Men", "Women")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = work_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_workWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_work, yend = wr_mean_work),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  geom_segment( 
+    data = regime_spans,
+    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
+    inherit.aes = FALSE,
+    size = 1.2,
+    color = "grey40"
+  ) +
+  coord_cartesian(ylim = c(-2, 2)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Employment disadvantage",
+    y = "Composite Employment Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+
+
+ggsave("Figures\\CompositeScores\\workWR_psp.png", width = 6, height = 4, dpi = 300)
+```
+
+### Material
+
+```{r}
+# Get positions of countries per regime
+regime_spans <- mat_pca_score %>%
+  arrange(regionWelfare, cntry) %>%
+  distinct(cntry, regionWelfare) %>%
+  mutate(cntry_id = as.numeric(factor(cntry, levels = unique(cntry)))) %>%
+  group_by(regionWelfare) %>%
+  summarise(x_start = min(cntry_id), x_end = max(cntry_id), .groups = "drop")
+
+# Get positions of the lines for regime averages 
+regime_spans_matWR <- regime_spans %>% 
+  left_join(mat_pca_pooledWR, by = "regionWelfare")
+
+
+#plot
+ggplot(mat_pca_score %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_mat, ymin = ci_l, ymax = ci_u, color = sex)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(sex == "All", 1, 0.4)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "Men" = "#1F77B4", "Women" = "#E69F00"),
+    breaks = c("All", "Men", "Women")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = mat_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_matWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_mat, yend = wr_mean_mat),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  geom_segment( 
+    data = regime_spans,
+    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
+    inherit.aes = FALSE,
+    linewidth = 1.2,
+    color = "grey40"
+  ) +
+  coord_cartesian(ylim = c(-1.5, 1.5)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Comparison of Material risk",
+    y = "Composite Material Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave("Figures\\CompositeScores\\matWR_psp.png", width = 6, height = 4, dpi = 300)
+```
+
+### HC access
+
+```{r}
+
+# Get positions of countries per regime
+regime_spans <- hc_pca_score %>%
+  arrange(regionWelfare, cntry) %>%
+  distinct(cntry, regionWelfare) %>%
+  mutate(cntry_id = as.numeric(factor(cntry, levels = unique(cntry)))) %>%
+  group_by(regionWelfare) %>%
+  summarise(x_start = min(cntry_id), x_end = max(cntry_id), .groups = "drop")
+
+# Get positions of the lines for regime averages 
+regime_spans_hcWR <- regime_spans %>% 
+  left_join(hc_pca_pooledWR, by = "regionWelfare")
+
+
+#plot
+ggplot(hc_pca_score %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_hc, ymin = ci_l, ymax = ci_u, color = sex)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(sex == "All", 1, 0.4)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "Men" = "#1F77B4", "Women" = "#E69F00"),
+    breaks = c("All", "Men", "Women")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = hc_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_hcWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_hc, yend = wr_mean_hc),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  geom_segment( 
+    data = regime_spans,
+    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
+    inherit.aes = FALSE,
+    size = 1.2,
+    color = "grey40"
+  ) +
+  coord_cartesian(ylim = c(-1.5, 1.5)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Healthcare access disadvantage", 
+    y = "Composite Healthcare access Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+
+ggsave("Figures\\CompositeScores\\HCWR_psp.png", width = 6, height = 4, dpi = 300)
+```
+
+### Behavioural
+
+```{r}
+# Get positions of countries per regime
+regime_spans <- behav_pca_score %>%
+  arrange(regionWelfare, cntry) %>%
+  distinct(cntry, regionWelfare) %>%
+  mutate(cntry_id = as.numeric(factor(cntry, levels = unique(cntry)))) %>%
+  group_by(regionWelfare) %>%
+  summarise(x_start = min(cntry_id), x_end = max(cntry_id), .groups = "drop")
+
+# Get positions of the lines for regime averages 
+regime_spans_behavWR <- regime_spans %>% 
+  left_join(behav_pca_pooledWR, by = "regionWelfare")
+
+
+#plot
+ggplot(behav_pca_score %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_behav, ymin = ci_l, ymax = ci_u, color = sex)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(sex == "All", 1, 0.4)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "Men" = "#1F77B4", "Women" = "#E69F00"),
+    breaks = c("All", "Men", "Women")
+  ) +
+  scale_alpha_identity() + 
+  geom_hline(yintercept = behav_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_behavWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_behav, yend = wr_mean_behav),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  geom_segment( 
+    data = regime_spans,
+    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55),
+    inherit.aes = FALSE,
+    size = 1.2,
+    color = "grey40"
+  ) +
+  coord_cartesian(ylim = c(-1.5, 1.5)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Behavioural disadvantage", 
+    y = "Composite Behavioural Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave("Figures\\CompositeScores\\BehavWR_psp.png", width = 6, height = 4, dpi = 300)
+```
+
+### Psychosocial
+
+```{r}
+# Get positions of countries per regime
+regime_spans <- psych_pca_score %>%
+  arrange(regionWelfare, cntry) %>%
+  distinct(cntry, regionWelfare) %>%
+  mutate(cntry_id = as.numeric(factor(cntry, levels = unique(cntry)))) %>%
+  group_by(regionWelfare) %>%
+  summarise(x_start = min(cntry_id), x_end = max(cntry_id), .groups = "drop")
+
+# Get positions of the lines for regime averages 
+regime_spans_psychWR <- regime_spans %>% 
+  left_join(psych_pca_pooledWR, by = "regionWelfare")
+
+#plot
+ggplot(psych_pca_score %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_psych, ymin = ci_l, ymax = ci_u, color = sex)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(sex == "All", 1, 0.4)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "Men" = "#1F77B4", "Women" = "#E69F00"),
+    breaks = c("All", "Men", "Women")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = psych_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_psychWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_psych, yend = wr_mean_psych),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  geom_segment( 
+    data = regime_spans,
+    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
+    inherit.aes = FALSE,
+    size = 1.2,
+    color = "grey40"
+  ) +
+  coord_cartesian(ylim = c(-1.5, 1.5)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Psychosocial disadvantage", 
+    y = "Composite Psychosocial Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave("Figures\\CompositeScores\\psychWR_psp.png", width = 6, height = 4, dpi = 300)
+```
+
+### Social Capital
+```{r}
+# Get positions of countries per regime
+regime_spans <- sc_pca_score %>%
+  arrange(regionWelfare, cntry) %>%
+  distinct(cntry, regionWelfare) %>%
+  mutate(cntry_id = as.numeric(factor(cntry, levels = unique(cntry)))) %>%
+  group_by(regionWelfare) %>%
+  summarise(x_start = min(cntry_id), x_end = max(cntry_id), .groups = "drop")
+
+# Get positions of the lines for regime averages 
+regime_spans_scWR <- regime_spans %>% 
+  left_join(sc_pca_pooledWR, by = "regionWelfare")
+
+#plot
+
+ggplot(sc_pca_score %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_sc, ymin = ci_l, ymax = ci_u, color = sex)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(sex == "All", 1, 0.4)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "Men" = "#1F77B4", "Women" = "#E69F00"),
+    breaks = c("All", "Men", "Women")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = sc_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_scWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_sc, yend = wr_mean_sc),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  geom_segment( 
+    data = regime_spans,
+    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
+    inherit.aes = FALSE,
+    size = 1.2,
+    color = "grey40"
+  ) +
+  coord_cartesian(ylim = c(-1.7, 1.7)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Social Capital disadvantage",
+    y = "Composite Social Capital Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave("Figures\\CompositeScores\\SCWR_psp.png", width = 6, height = 4, dpi = 300)
+```
+
+## SPIDER-PLOTS: PCA
+
+### Prepare data
+
+```{r}
+
+# Select relevant variables
+
+pca_spider_vars <- c("index_edu", "pc1_work", "pc1_mat", "pc1_hc", "pc1_behav", "pc1_psych" , "pc1_sc") 
+
+# Rename variables for the graph
+
+PCAblock_labels <- c(
+  index_edu = "Education",
+  pc1_work = "Employment", 
+  pc1_mat = "Material",
+  pc1_hc = "HC access",
+  pc1_behav = "Behaviour", 
+  pc1_psych = "Psychosocial",
+  pc1_sc = "Social Capital"
+)
+
+
+### PCA data European average: prepare ----
+
+all_pca_score_EuMean <- c( 
+  index_edu   = edu_index_pooledCountry,
+  pc1_work  = work_pca_pooledCountry,
+  pc1_mat   = mat_pca_pooledCountry,
+  pc1_hc    = hc_pca_pooledCountry,
+  pc1_behav = behav_pca_pooledCountry,
+  pc1_psych = psych_pca_pooledCountry,
+  pc1_sc    = sc_pca_pooledCountry
+)
+
+
+### PCA data WR average ----
+
+# merge allWR_pca_score into a new dataframe 
+
+allWR_pca_score <- merge(edu_index_pooledWR, work_pca_pooledWR, by = c("regionWelfare"))
+allWR_pca_score <- merge(allWR_pca_score, mat_pca_pooledWR, by = c("regionWelfare"))
+allWR_pca_score <- merge(allWR_pca_score, hc_pca_pooledWR, by = c("regionWelfare"))
+allWR_pca_score <- merge(allWR_pca_score, behav_pca_pooledWR, by = c("regionWelfare"))
+allWR_pca_score <- merge(allWR_pca_score, psych_pca_pooledWR, by = c("regionWelfare"))
+allWR_pca_score <- merge(allWR_pca_score, sc_pca_pooledWR, by = c("regionWelfare"))
+
+
+#convert all_pca_score to numeric 
+
+allWR_pca_numeric <- allWR_pca_score %>% 
+  dplyr::select(c(wr_mean_edu, wr_mean_work, wr_mean_mat, wr_mean_hc, wr_mean_behav, wr_mean_psych, wr_mean_sc )) %>% 
+  as.data.frame() %>% 
+  lapply(function(x) {
+    if (inherits(x, "haven_labelled")) {
+      as.numeric(as_factor(x))  
+    } else {
+      as.numeric(x)
+    }
+  }) %>% 
+  as.data.frame()
+
+
+### PCA data Country: prepare ----
+
+# clean _pca_score dataframes to only leave cntry and pca score
+
+edu_index_tomerge <- edu_index_pooledsex %>% 
+  dplyr::select(cntry, index_edu)
+work_pca_tomerge <- work_pca_pooledsex %>% 
+  dplyr::select(cntry, pc1_work)
+mat_pca_tomerge <- mat_pca_pooledsex %>% 
+  dplyr::select(cntry, pc1_mat)
+hc_pca_tomerge <- hc_pca_pooledsex %>% 
+  dplyr::select(cntry, pc1_hc)
+behav_pca_tomerge <- behav_pca_pooledsex %>% 
+  dplyr::select(cntry, pc1_behav)
+psych_pca_tomerge <- psych_pca_pooledsex %>% 
+  dplyr::select(cntry, pc1_psych)
+sc_pca_tomerge <- sc_pca_pooledsex %>% 
+  dplyr::select(cntry, pc1_sc)
+
+# merge all _pca_score into a new dataframe 
+
+all_pca_score <- merge(edu_index_tomerge, work_pca_tomerge, by = c("cntry"))
+all_pca_score <- merge(all_pca_score, mat_pca_tomerge, by = c("cntry"))
+all_pca_score <- merge(all_pca_score, hc_pca_tomerge, by = c("cntry"))
+all_pca_score <- merge(all_pca_score, behav_pca_tomerge, by = c("cntry"))
+all_pca_score <- merge(all_pca_score, psych_pca_tomerge, by = c("cntry"))
+all_pca_score <- merge(all_pca_score, sc_pca_tomerge, by = c("cntry"))
+
+
+#convert all_pca_score to numeric 
+
+all_pca_numeric <- all_pca_score %>% 
+  dplyr::select(all_of(pca_spider_vars)) %>% 
+  as.data.frame() %>% 
+  lapply(function(x) {
+    if (inherits(x, "haven_labelled")) {
+      as.numeric(as_factor(x))  
+    } else {
+      as.numeric(x)
+    }
+  }) %>% 
+  as.data.frame()
+
+
+### Max/Min for each variable ----
+# Compute per-axis anchors (max and min) following order
+
+pca_max_val <- sapply(all_pca_numeric[pca_spider_vars], max, na.rm = TRUE)
+pca_min_val <- sapply(all_pca_numeric[pca_spider_vars], min, na.rm = TRUE)
+```
+
+### Country plots
+
+```{r}
+# Loop
+for (country in country_list) {
+  
+  # Filter country-specific data
+  country_data <- all_pca_score %>% 
+    filter(cntry == country) %>% 
+    dplyr::select(all_of(pca_spider_vars))%>% 
+    as.data.frame()
+  
+  # enforce the same column order explicitly 
+  country_data <- country_data[, pca_spider_vars, drop = FALSE] 
+  
+  
+  # construct radar df
+  radarPCA_df <- rbind(
+    pca_max_val[pca_spider_vars],  
+    pca_min_val[pca_spider_vars], 
+    country_data,    
+    all_pca_score_EuMean[pca_spider_vars]  
+  )
+  
+  
+  colnames(radarPCA_df) <-  PCAblock_labels[pca_spider_vars] 
+  par(lend = 2)   
+  
+  # Showing plot 
+  par(mar = c(1, 2, 3, 2))  
+  
+  
+  radarchart(radarPCA_df,
+             axistype = 1,
+             
+             pcol = c("darkred", "darkblue"),
+             pfcol = c(scales::alpha("darkred", 0.2), NA), 
+             plwd = c(2, 2),
+             cglcol = "grey", 
+             cglty = 1,
+             axislabcol = "black", 
+             #caxislabels = rep("", length(caxislabels_seq)), 
+             cglwd = 0.8,
+             vlcex = 0.9,
+             title = country)
+  
+  Sys.sleep(1)  
+  
+  # Saving plot to PNG
+  png(filename = paste0("Figures\\pca_per_country_spider\\Spiderplot_", country, ".png"), width = 600, height = 600)
+  par(mar = c(1, 2, 3, 2))  
+  radarchart(radarPCA_df,
+             axistype = 1,
+             pcol = c("darkred", "darkblue"), 
+             pfcol = c(scales::alpha("darkred", 0.2), NA),
+             plwd = c(4, 4),
+             cglcol = "grey", 
+             cglty = 1,
+             axislabcol = "black", 
+             #caxislabels = rep("", length(caxislabels_seq)),
+             cglwd = 0.8,
+             vlcex = 0.9,
+             title = country,
+             cex.main = 4) 
+  dev.off()
+  
+}
+
+```
+
+### EU plots
+
+```{r}
+
+# construct radar df
+radarPCA_empty_df <- as.data.frame(rbind(
+  pca_max_val[pca_spider_vars],  ##put max/min of the whole
+  pca_min_val[pca_spider_vars], 
+  all_pca_score_EuMean[pca_spider_vars])  
+)
+
+colnames(radarPCA_empty_df) <-  PCAblock_labels[pca_spider_vars] 
+
+# Show plot 
+par(lend = 2)   
+par(mar = c(1, 2, 2, 2))  
+
+
+radarchart(radarPCA_empty_df,
+           axistype = 1,
+           pcol = "darkblue",
+           plwd = 2,
+           cglcol = "grey", 
+           cglty = 1,
+           axislabcol = "black", 
+           #caxislabels = rep("", length(caxislabels_seq)), 
+           cglwd = 0.8,
+           vlcex = 1)
+
+# Saving plot to PNG
+png(filename = paste0("Figures\\pca_per_country_spider\\Spiderplot_Empty.png"), width = 600, height = 600)
+par(mar = c(1, 2, 2, 2))  
+radarchart(radarPCA_empty_df,
+           axistype = 1,
+           pcol = "darkblue", 
+           plwd = 4,
+           cglcol = "grey", 
+           cglty = 1,
+           axislabcol = "black", 
+           #caxislabels = rep("", length(caxislabels_seq)), 
+           cglwd = 0.8,
+           vlcex = 1.8,
+           cex.main = 4)
+dev.off()
+```
+
+### WR plot
+
+```{r}
+
+#Loop
+
+for (WR in WR_list) {
+  
+  # Filter country-specific data
+  WR_data <- allWR_pca_score %>% 
+    filter(regionWelfare == WR) %>% 
+    dplyr::select(wr_mean_edu, wr_mean_work, wr_mean_mat, wr_mean_hc, wr_mean_behav, wr_mean_psych, wr_mean_sc)%>% 
+    as.data.frame()
+  
+  # construct radar df
+  radarPCA_WR_df <- rbind(
+    pca_max_val[pca_spider_vars], 
+    pca_min_val[pca_spider_vars], 
+    WR_data,
+    all_pca_score_EuMean[pca_spider_vars] 
+  )
+  
+  colnames(radarPCA_WR_df) <-  PCAblock_labels[pca_spider_vars] 
+  
+  
+  # Show plot 
+  par(lend = 2)   
+  par(mar = c(1, 2, 3, 2))
+  
+  
+  radarchart(radarPCA_WR_df,
+             axistype = 1,
+             pcol = c("blue", "darkblue"),
+             pfcol = c(scales::alpha("blue", 0.2), NA), 
+             plwd = c(2, 2),
+             cglcol = "grey", 
+             cglty = 1,
+             axislabcol = "black", 
+             #caxislabels = rep("", length(caxislabels_seq)), 
+             cglwd = 0.8,
+             vlcex = 0.9,
+             title = WR_labels[as.character(WR)])
+  Sys.sleep(1)
+  
+  # Saving plot to PNG
+  png(filename = paste0("Figures\\pca_per_country_spider\\Spiderplot_", WR, ".png"), width = 600, height = 600)
+  par(mar = c(1, 2, 3, 2))
+  radarchart(radarPCA_WR_df,
+             axistype = 1,
+             pcol = c("blue", "darkblue"),
+             pfcol = c(scales::alpha("blue", 0.2), NA), 
+             plwd = c(4, 4),
+             cglcol = "grey",
+             cglty = 1,
+             axislabcol = "black",
+             #caxislabels = rep("", length(caxislabels_seq)),
+             cglwd = 0.8,
+             vlcex = 0.9,
+             title = WR_labels[as.character(WR)],
+             cex.main = 4)
+  dev.off()
+  
+}
+```
+
+
+## CLUSTER ANALYSIS
+```{r}
+# Dataframe to use
+all_pca_score_std <- all_pca_score
+
+# Set country names as rownames
+rownames(all_pca_score_std) <- all_pca_score_std$cntry
+
+# Keep only PCA variables and standardize
+all_pca_score_std <- scale(all_pca_score_std[, 2:8])
+
+# Distance matrix
+all_pca_distance <- dist(all_pca_score_std)
+
+# Hierarchical clustering
+clust_all_pca <-hclust(all_pca_distance, method = "ward.D2")
+
+# Dendrogram
+countries_wrongWR <- c("CY", "GR", "PL", "SI", "EE", "CH", "NL")
+
+clust_all_pca_dendro <- as.dendrogram(clust_all_pca)
+labels_colors(clust_all_pca_dendro) <- ifelse(labels(clust_all_pca_dendro) %in% countries_wrongWR, "red", "black")
+plot(clust_all_pca_dendro,
+     xlab = "", ylab = "", sub = "")
+
+png("Figures\\Cluster\\Cluster_Ward_D2.png", width = 800, height = 600)
+plot(clust_all_pca_dendro,
+     xlab = "", ylab = "", sub = "")
+dev.off()
+```
+
+## ANOVA
+
+```{r}
+# Create dataset (from Spiderplot section)
+all_pca_score_WR <- all_pca_score |>
+  left_join(country_regionWelfare, by = "cntry")
+all_pca_score_WR$regionWelfare <- as.factor(all_pca_score_WR$regionWelfare)
+```
+
+### Education
+
+```{r}
+aov_edu <- aov(index_edu ~ regionWelfare, data = all_pca_score_WR)
+
+shapiro.test(residuals(aov_edu)) 
+leveneTest(index_edu ~ regionWelfare, data = all_pca_score_WR) 
+
+summary(aov_edu) 
+```
+
+### Employment Conditions
+
+```{r}
+aov_work <- aov(pc1_work ~ regionWelfare, data = all_pca_score_WR) 
+
+shapiro.test(residuals(aov_work)) 
+leveneTest(pc1_work ~ regionWelfare, data = all_pca_score_WR) 
+
+summary(aov_work) 
+```
+
+
+### Material
+
+```{r}
+aov_mat <- aov(pc1_mat ~ regionWelfare, data = all_pca_score_WR) 
+
+shapiro.test(residuals(aov_mat)) 
+leveneTest(pc1_mat ~ regionWelfare, data = all_pca_score_WR)
+
+summary(aov_mat) 
+```
+
+### Healthcare
+
+```{r}
+aov_hc <- aov(pc1_hc ~ regionWelfare, data = all_pca_score_WR) 
+
+shapiro.test(residuals(aov_hc)) 
+leveneTest(pc1_hc ~ regionWelfare, data = all_pca_score_WR) 
+
+summary(aov_hc) 
+```
+
+### Behavioural
+
+```{r}
+aov_behav <- aov(pc1_behav ~ regionWelfare, data = all_pca_score_WR) 
+
+shapiro.test(residuals(aov_behav)) 
+leveneTest(pc1_behav ~ regionWelfare, data = all_pca_score_WR) 
+
+aov_behav <- kruskal.test(pc1_behav ~ regionWelfare, 
+                         data = all_pca_score_WR)
+summary(aov_behav) 
+```
+
+### Psychosocial
+
+```{r}
+aov_psych <-aov(pc1_psych ~ regionWelfare, data = all_pca_score_WR) 
+
+shapiro.test(residuals(aov_psych)) 
+leveneTest(pc1_psych ~ regionWelfare, data = all_pca_score_WR) 
+
+summary(aov_psych) 
+```
+
+### Social Capital
+```{r}
+aov_sc <- aov(pc1_sc ~ regionWelfare, data = all_pca_score_WR) 
+
+shapiro.test(residuals(aov_sc)) 
+leveneTest(pc1_sc ~ regionWelfare, data = all_pca_score_WR) 
+
+summary(aov_sc) 
+```
