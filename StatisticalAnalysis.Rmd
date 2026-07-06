@@ -1904,7 +1904,7 @@ dev.off()
 
 ```{r}
 # Create dataset (from Spiderplot section)
-all_pca_score_WR <- all_pca_score |>
+all_pca_score_WR <- all_pca_score %>%
   left_join(country_regionWelfare, by = "cntry")
 all_pca_score_WR$regionWelfare <- as.factor(all_pca_score_WR$regionWelfare)
 ```
