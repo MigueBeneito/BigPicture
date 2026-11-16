@@ -39,6 +39,7 @@ ESS11FullRaw$hincfel[ESS11FullRaw$hincfel == 7 | ESS11FullRaw$hincfel == 8 | ESS
 ESS11FullRaw$alcfreq[ESS11FullRaw$alcfreq == 77 | ESS11FullRaw$alcfreq == 88 | ESS11FullRaw$alcfreq == 99] <- NA
 ESS11FullRaw$medtrun[ESS11FullRaw$medtrun == 7 | ESS11FullRaw$medtrun == 8 | ESS11FullRaw$medtrun == 9] <- NA
 ESS11FullRaw$volunfp[ESS11FullRaw$volunfp == 7 | ESS11FullRaw$volunfp == 8 | ESS11FullRaw$volunfp == 9] <- NA
+
 # Sex ----
 
 ESS11Rec <- ESS11FullRaw %>% 
@@ -69,17 +70,15 @@ ESS11Rec <- ESS11Rec %>%
   mutate(regionWelfare = case_when(
     cntry %in% c("FI", "IS", "NO", "SE") ~ 1,  # Scandinavian
     cntry %in% c("GB", "IE") ~ 2,  # Anglo-Saxon
-    cntry %in% c("AT", "BE", "CH", "DE", "FR","IL", "NL") ~ 3,  # Bismarkian
-    cntry %in% c("BG", "EE", "HU", "HR", "LT", "LV","ME","PL", "RS", "SI", "SK", "UA") ~ 4,  #  Eastern European 
+    cntry %in% c("AT", "BE", "CH", "DE", "FR", "NL") ~ 3,  # Bismarckian 
+    cntry %in% c("BG", "EE", "HU", "HR", "LT", "LV","ME","PL", "RS", "SI", "SK", "UA") ~ 4,  #  Eastern European
     cntry %in% c("ES", "GR", "IT", "PT","CY") ~ 5,  # Southern
     TRUE ~ 99  
   )) %>%
   mutate(regionWelfare = set_value_labels(
     regionWelfare,
-    labels = c("Scandinavian" = 1, "Anglo-Saxon" = 2, "Mismarkian" = 3, "Eastern European " = 4,"Southern" = 5, "Other" = 99)
-  ))
-
-# Education ----
+    labels = c("Scandinavian" = 1, "Anglo-Saxon" = 2, "Bismarckian" = 3, "Eastern European " = 4,"Southern" = 5, "Other" = 99)
+  ))   
 
 ## eiscedV 
 ESS11Rec <- ESS11Rec %>%
@@ -108,6 +107,29 @@ ESS11Rec <- ESS11Rec %>%
 # eisced2 
 ESS11Rec <- ESS11Rec %>% 
   mutate( eisced2 = if_else(eiscedV < 3, 1, 0)) #eisced2 1 =	ES-ISCED IIIb, lower tier upper secondary OR lower, eisced2 0 = upper secondary or higher
+
+ESS11Rec <- ESS11Rec %>% 
+  mutate(
+    eisced3II = case_when(
+      eiscedV == 0 ~ 0,
+      eiscedV == 1 ~ 1,
+      eiscedV == 2 ~ 1,
+      eiscedV == 3 ~ 2,
+      eiscedV == 4 ~ 2,
+      eiscedV == 5 ~ 3,
+      eiscedV == 55 ~ 55
+    )
+  ) %>% 
+  mutate(
+    eisced3II = set_value_labels(
+      eisced3II,
+      labels = c("Not possible to harmonise into ES-ISCED" = 0, "primary (ISCED I and II)" = 1, "secondary (ISCED III and IV)" = 2, "tertiary (ISCED V)" = 3, "Other" = 55)
+    )
+  )
+
+# Education ----
+ESS11Rec <- ESS11Rec %>% 
+  mutate(edustrat = factor(eisced3II, levels = c(1,2,3), labels = c("primary", "secondary", "tertiary"))) 
 
 # Health behaviours ----
 
@@ -488,29 +510,51 @@ library(janitor)
 library(effectsize)
 library(car)
 library(dendextend)
+library(clue) 
+library(irr) 
+library(emmeans)
 ```
 
 ## PCA: Composite risk score
 
 ### Preparations
 ```{r}
-# Create a DataSet 
-pca_variables <- c("id_row", "cntry", "regionWelfare", "psu", "stratum", "gender", "pspwght", "anweight", "eisced2", "material", "ergonomic", "wkorg", "iorgactr", "unemplD", "mbtruD", "housing", "fndf", "hincfel", "medtrun2", "hlpfmhrrcomb", "dshltgpr","dshltmsr" , "etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq", "cntrlife", "stflifer","conflpplh", "socialmeet", "inperdisc", "ppltrust", "trustplt", "volunfpr")
+# Create a DataSet (gender and edustrat are used for PCA stratitification)
+pca_variables <- c("id_row", "cntry", "regionWelfare", "psu", "stratum", "gender", "pspwght", "anweight", "eisced2","edustrat", "material", "ergonomic", "wkorg", "iorgactr", "unemplD", "mbtruD", "housing", "fndf", "hincfel", "medtrun2", "hlpfmhrrcomb", "dshltgpr","dshltmsr" , "etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq",  "cntrlife", "stflifer","conflpplh", "socialmeet", "inperdisc", "ppltrust", "trustplt", "volunfpr")
 
 # Check NAs
 colSums(is.na(ESS11RecEu[,pca_variables])) 
 
-# Make dataset
-pca_df <- ESS11RecEu %>% 
-  dplyr::select(all_of(pca_variables))
+# Make main and sensitivity datasets and Include sex as factor
+# Main dataset
+pca_df_main <- ESS11RecEu %>% 
+  dplyr::select(all_of(pca_variables)) %>% 
+  mutate(sex = factor(gender, levels = c(0, 1),
+                      labels = c("Men", "Women")))  
 
-# Include sex as factor
-pca_df <- pca_df %>% 
-  mutate(sex = factor(gender, levels = c(0,1), labels = c("Men", "Women")))
+#UNCOMMENT FOR ANALYSES WITHOUT UKRAINE
+##sensitivity w/o Ukraine dataset
+#pca_df_noUa <- pca_df_main %>% filter(cntry != "UA")
+
+# Select dataset for the MAIN analysis:
+pca_df <- pca_df_main
+analysis_version <- "main" # Choose analysis version for outputs
+
+# UNCOMMENT THE FOLLOWING FOR ANALYSES WITHOUT UKRAINE
+#Select SENSITIVITY analysis without UA:
+#pca_df <- pca_df_noUa
+#analysis_version <- "no_ukraine" # Choose analysis version
+
+# Create output folder automatically
+output_dir <- file.path("Figures", analysis_version)
+
+dir.create(
+  output_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
 ```
 
-
-  
 ### Education
 ```{r}
 #Step 0: Make a df only for the subset of variables (to drop NAs)
@@ -536,18 +580,8 @@ options(survey.lonely.psu = "adjust")
 
 # Step 3: Estimate means with confidence intervals
 
-#By sex
-edu_index_bysex <- svyby( 
-  ~index_edu,
-  ~cntry + sex, 
-  index_design_edu,
-  svymean,
-  na.rm = TRUE,
-  vartype = c("se", "ci")
-)
-
-#pooled sex
-edu_index_pooledsex <- svyby(
+#pooled
+edu_index_pooled <- svyby(
   ~index_edu,
   ~cntry,
   index_design_edu,
@@ -556,14 +590,38 @@ edu_index_pooledsex <- svyby(
   vartype = c("se", "ci")
 ) %>% 
   as.data.frame() %>% 
-  mutate(sex = "All")  
+  mutate(sex = "All") %>%
+  mutate(edustrat = "All")
 
+#By sex
+edu_index_bysex <- svyby( 
+  ~index_edu,
+  ~cntry + sex, 
+  index_design_edu,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>%
+  as.data.frame() %>% 
+  mutate(edustrat = "All")
+
+#By edu
+edu_index_byedu <- svyby( 
+  ~index_edu,
+  ~cntry + edustrat, 
+  index_design_edu,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>%
+  as.data.frame() %>% 
+  mutate(sex = "All")
 
 # Europe pooled (mean of countries)
-edu_index_pooledCountry <- mean(edu_index_pooledsex$index_edu, na.rm = TRUE)
+edu_index_pooledCountry <- mean(edu_index_pooled$index_edu, na.rm = TRUE)
 
 # WR pooled (mean of countries)
-edu_index_pooledWR <-  edu_index_pooledsex %>%
+edu_index_pooledWR <-  edu_index_pooled %>%
   left_join(country_regionWelfare, by = "cntry") %>% 
   group_by(regionWelfare) %>%
   summarise(
@@ -573,8 +631,9 @@ edu_index_pooledWR <-  edu_index_pooledsex %>%
 
 # Step 4: Bind analyses, and add region info back in 
 edu_index_score <- bind_rows(
-  edu_index_pooledsex %>%  dplyr::select(cntry, index_edu, se, ci_l, ci_u, sex),
-  edu_index_bysex %>% dplyr::select(cntry, index_edu, se, ci_l, ci_u, sex)
+  edu_index_pooled %>%  dplyr::select(cntry, index_edu, se, ci_l, ci_u, sex, edustrat),
+  edu_index_bysex %>% dplyr::select(cntry, index_edu, se, ci_l, ci_u, sex, edustrat),
+  edu_index_byedu %>% dplyr::select(cntry, index_edu, se, ci_l, ci_u, sex, edustrat)
 )
 
 edu_index_score <- edu_index_score %>% 
@@ -591,7 +650,7 @@ pca_df_work <- pca_df %>%
 # Calculate a manual reference Risk score to know the direction of risk (and correct the PCA sign if needed)
 risk_ref_work <- pca_df_work %>% 
   mutate(across(
-    c("unemplD", "mbtruD", "material","ergonomic","wkorg","iorgactr"),
+    c("unemplD", "mbtruD","material","ergonomic","wkorg","iorgactr"),
     ~ (.-min(., na.rm=TRUE)) / (max(., na.rm=TRUE) - min(., na.rm=TRUE))
   )) %>% 
   transmute(risk_ref_psych = rowMeans(across(c("unemplD", "mbtruD", "material","ergonomic","wkorg","iorgactr")), na.rm = TRUE)) %>% 
@@ -613,6 +672,9 @@ if(cor_work < 0){
 }
 
 print(pca_work)
+# Variance explained by each dimension
+(pca_work$sdev^2)/sum(pca_work$sdev^2) 
+
 
 # Merge the result of the PCA to the initial pca_df 
 pca_df_work_scores <- pca_df_work %>%
@@ -632,18 +694,8 @@ options(survey.lonely.psu = "adjust")
 
 # Step 3: Estimate means with confidence intervals
 
-#By sex
-work_pca_bysex <- svyby( 
-  ~pc1_work, 
-  ~cntry + sex, 
-  pca_design_work,
-  svymean,
-  na.rm = TRUE,
-  vartype = c("se", "ci")
-)
-
-#pooled sex 
-work_pca_pooledsex <- svyby(
+# pooled 
+work_pca_pooled <- svyby(
   ~pc1_work,
   ~cntry,
   pca_design_work,
@@ -652,14 +704,38 @@ work_pca_pooledsex <- svyby(
   vartype = c("se", "ci")
 ) %>% 
   as.data.frame() %>% 
-  mutate(sex = "All") 
+  mutate(sex = "All") %>%
+  mutate(edustrat = "All")
 
+#By sex
+work_pca_bysex <- svyby( 
+  ~pc1_work, 
+  ~cntry + sex, 
+  pca_design_work,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(edustrat = "All")
+
+#By edu
+work_pca_byedu <- svyby( 
+  ~pc1_work, 
+  ~cntry + edustrat, 
+  pca_design_work,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")
 
 # Europe pooled (mean of countries)
-work_pca_pooledCountry <- mean(work_pca_pooledsex$pc1_work, na.rm = TRUE)
+work_pca_pooledCountry <- mean(work_pca_pooled$pc1_work, na.rm = TRUE)
 
 # WR pooled (mean of countries) 
-work_pca_pooledWR <-  work_pca_pooledsex %>%
+work_pca_pooledWR <-  work_pca_pooled %>%
   left_join(country_regionWelfare, by = "cntry") %>% 
   group_by(regionWelfare) %>%
   summarise(
@@ -669,8 +745,9 @@ work_pca_pooledWR <-  work_pca_pooledsex %>%
 
 # Step 4: Bind analyses, and add region info back in (once per country)
 work_pca_score <- bind_rows(
-  work_pca_pooledsex %>%  dplyr::select(cntry, pc1_work, se, ci_l, ci_u, sex),
-  work_pca_bysex %>% dplyr::select(cntry, pc1_work, se, ci_l, ci_u, sex)
+  work_pca_pooled %>%  dplyr::select(cntry, pc1_work, se, ci_l, ci_u, sex, edustrat),
+  work_pca_bysex %>% dplyr::select(cntry, pc1_work, se, ci_l, ci_u, sex, edustrat),
+  work_pca_byedu %>% dplyr::select(cntry, pc1_work, se, ci_l, ci_u, sex, edustrat)
 )
 
 
@@ -705,6 +782,7 @@ pca_mat <- prcomp(pca_df_mat[, c("housing", "fndf", "hincfel")],
 
 print(pca_mat)
 
+
 # Check if sign is aligned with risk reference
 
 cor_mat <- cor(pca_mat$x[,1], risk_ref_mat, use = "complete.obs")
@@ -714,6 +792,8 @@ if(cor_mat < 0){
   pca_mat$rotation[,1] <- -pca_mat$rotation[,1]
 }
 print(pca_mat)
+# Variance explained by each dimension
+(pca_mat$sdev^2)/sum(pca_mat$sdev^2) 
 
 # Merge the result of the PCA to the initial pca_df
 pca_df_mat_scores <- pca_df_mat %>% 
@@ -733,18 +813,8 @@ options(survey.lonely.psu = "adjust")
 
 # Step 3: Estimate means with confidence intervals
 
-#By sex
-mat_pca_bysex <- svyby( 
-  ~pc1_mat,
-  ~cntry + sex, 
-  pca_design_mat,
-  svymean,
-  na.rm = TRUE,
-  vartype = c("se", "ci")
-)
-
-#pooled sex 
-mat_pca_pooledsex <- svyby(
+#pooled
+mat_pca_pooled <- svyby(
   ~pc1_mat,
   ~cntry,
   pca_design_mat,
@@ -753,16 +823,40 @@ mat_pca_pooledsex <- svyby(
   vartype = c("se", "ci")
 ) %>% 
   as.data.frame() %>% 
-  mutate(sex = "All")   
+  mutate(sex = "All")%>% 
+  mutate(edustrat = "All")   
 
+#By sex
+mat_pca_bysex <- svyby( 
+  ~pc1_mat,
+  ~cntry + sex, 
+  pca_design_mat,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(edustrat = "All")
+
+#By edu
+mat_pca_byedu <- svyby( 
+  ~pc1_mat,
+  ~cntry + edustrat, 
+  pca_design_mat,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")
 
 # Europe pooled (mean of countries)
 
-mat_pca_pooledCountry <- mean(mat_pca_pooledsex$pc1_mat, na.rm = TRUE)
+mat_pca_pooledCountry <- mean(mat_pca_pooled$pc1_mat, na.rm = TRUE)
 
 # WR pooled (mean of countries)
 
-mat_pca_pooledWR <-  mat_pca_pooledsex %>%
+mat_pca_pooledWR <-  mat_pca_pooled %>%
   left_join(country_regionWelfare, by = "cntry") %>% 
   group_by(regionWelfare) %>%
   summarise(
@@ -773,8 +867,9 @@ mat_pca_pooledWR <-  mat_pca_pooledsex %>%
 # Step 4: Bind analyses, and add region info back in (once per country) 
 
 mat_pca_score <- bind_rows(
-  mat_pca_pooledsex %>%  dplyr::select(cntry, pc1_mat, se, ci_l, ci_u, sex),
-  mat_pca_bysex %>% dplyr::select(cntry, pc1_mat, se, ci_l, ci_u, sex)
+  mat_pca_pooled %>%  dplyr::select(cntry, pc1_mat, se, ci_l, ci_u, sex, edustrat),
+  mat_pca_bysex %>% dplyr::select(cntry, pc1_mat, se, ci_l, ci_u, sex, edustrat),  
+  mat_pca_byedu %>% dplyr::select(cntry, pc1_mat, se, ci_l, ci_u, sex, edustrat)
 )
 
 mat_pca_score <- mat_pca_score %>% 
@@ -804,6 +899,7 @@ pca_hc <- prcomp(pca_df_hc[, c( "medtrun2", "hlpfmhrrcomb", "dshltmsr", "dshltgp
 
 print(pca_hc)
 
+
 #Check if sign is aligned with risk reference
 cor_hc <- cor(pca_hc$x[,1], risk_ref_hc, use = "complete.obs")
 
@@ -812,6 +908,8 @@ if(cor_hc < 0){
   pca_hc$rotation[,1] <- -pca_hc$rotation[,1]
 }
 print(pca_hc)
+# Variance explained by each dimension
+(pca_hc$sdev^2)/sum(pca_hc$sdev^2)
 
 # Merge the result of the PCA to the initial pca_df
 pca_df_hc_scores <- pca_df_hc %>% 
@@ -828,18 +926,8 @@ pca_design_hc <- svydesign(
 
 # Step 3: Estimate means with confidence intervals
 
-#By sex
-hc_pca_bysex <- svyby( 
-  ~pc1_hc,
-  ~cntry + sex, 
-  pca_design_hc,
-  svymean,
-  na.rm = TRUE,
-  vartype = c("se", "ci")
-)
-
-#pooled sex 
-hc_pca_pooledsex <- svyby(
+#pooled 
+hc_pca_pooled <- svyby(
   ~pc1_hc,
   ~cntry,
   pca_design_hc,
@@ -848,16 +936,40 @@ hc_pca_pooledsex <- svyby(
   vartype = c("se", "ci")
 ) %>% 
   as.data.frame() %>% 
-  mutate(sex = "All")   
+  mutate(sex = "All") %>% 
+  mutate(edustrat = "All")  
 
+#By sex
+hc_pca_bysex <- svyby( 
+  ~pc1_hc,
+  ~cntry + sex, 
+  pca_design_hc,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)%>% 
+  as.data.frame() %>% 
+  mutate(edustrat = "All")
+
+#By edu
+hc_pca_byedu <- svyby( 
+  ~pc1_hc,
+  ~cntry + edustrat, 
+  pca_design_hc,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)%>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")
 
 # Europe pooled (mean of countries)
 
-hc_pca_pooledCountry <- mean(hc_pca_pooledsex$pc1_hc, na.rm = TRUE)
+hc_pca_pooledCountry <- mean(hc_pca_pooled$pc1_hc, na.rm = TRUE)
 
 # WR pooled (mean of countries)
 
-hc_pca_pooledWR <-  hc_pca_pooledsex %>%
+hc_pca_pooledWR <-  hc_pca_pooled %>%
   left_join(country_regionWelfare, by = "cntry") %>% 
   group_by(regionWelfare) %>%
   summarise(
@@ -867,8 +979,9 @@ hc_pca_pooledWR <-  hc_pca_pooledsex %>%
 
 # Step 4: Bind analyses, and add region info back in (once per country) 
 hc_pca_score <- bind_rows(
-  hc_pca_pooledsex %>%  dplyr::select(cntry, pc1_hc, se, ci_l, ci_u, sex),
-  hc_pca_bysex %>% dplyr::select(cntry, pc1_hc, se, ci_l, ci_u, sex)
+  hc_pca_pooled %>%  dplyr::select(cntry, pc1_hc, se, ci_l, ci_u, sex, edustrat),
+  hc_pca_bysex %>% dplyr::select(cntry, pc1_hc, se, ci_l, ci_u, sex, edustrat),
+  hc_pca_byedu %>% dplyr::select(cntry, pc1_hc, se, ci_l, ci_u, sex, edustrat)
 )
 
 hc_pca_score <- hc_pca_score %>% 
@@ -890,7 +1003,7 @@ risk_ref_behav <- pca_df_behav %>%
     c("etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq"),
     ~ (.-min(., na.rm=TRUE)) / (max(., na.rm=TRUE) - min(., na.rm=TRUE))
   )) %>% 
-  transmute(risk_ref_behav = rowMeans(across(c("etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq")), na.rm = TRUE)) %>% ## changed!!! , "alcoholbngcomb"
+  transmute(risk_ref_behav = rowMeans(across(c("etfruitveg", "dosportr", "cgtsmoker", "alcoholfreq")), na.rm = TRUE)) %>% 
   pull()
 
 
@@ -901,6 +1014,7 @@ pca_behav <- prcomp(pca_df_behav[, c("etfruitveg", "dosportr", "cgtsmoker", "alc
 
 print(pca_behav)
 
+
 #Check if sign is aligned with risk reference
 cor_behav <- cor(pca_behav$x[,1], risk_ref_behav, use = "complete.obs")
 
@@ -909,7 +1023,8 @@ if(cor_behav < 0){
   pca_behav$rotation[,1] <- -pca_behav$rotation[,1]
 }
 print(pca_behav)
-
+# Variance explained by each dimension
+(pca_behav$sdev^2)/sum(pca_behav$sdev^2) 
 
 # Merge the result of the PCA to the initial pca_df
 
@@ -929,18 +1044,8 @@ pca_design_behav <- svydesign(
 
 # Step 3: Estimate means with confidence intervals
 
-#By sex
-behav_pca_bysex <- svyby( 
-  ~pc1_behav,
-  ~cntry + sex, 
-  pca_design_behav,
-  svymean,
-  na.rm = TRUE,
-  vartype = c("se", "ci")
-)
-
-#pooled sex 
-behav_pca_pooledsex <- svyby(
+#pooled
+behav_pca_pooled <- svyby(
   ~pc1_behav,
   ~cntry,
   pca_design_behav,
@@ -949,16 +1054,40 @@ behav_pca_pooledsex <- svyby(
   vartype = c("se", "ci")
 ) %>% 
   as.data.frame() %>% 
-  mutate(sex = "All")   
+  mutate(sex = "All") %>% 
+  mutate(edustrat = "All")   
 
+#By sex
+behav_pca_bysex <- svyby( 
+  ~pc1_behav,
+  ~cntry + sex, 
+  pca_design_behav,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(edustrat = "All")
+
+#By edu
+behav_pca_byedu <- svyby( 
+  ~pc1_behav,
+  ~cntry + edustrat, 
+  pca_design_behav,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All")
 
 # Europe pooled (mean of countries)
 
-behav_pca_pooledCountry <- mean(behav_pca_pooledsex$pc1_behav, na.rm = TRUE)
+behav_pca_pooledCountry <- mean(behav_pca_pooled$pc1_behav, na.rm = TRUE)
 
 # WR pooled (mean of countries)
 
-behav_pca_pooledWR <-  behav_pca_pooledsex %>%
+behav_pca_pooledWR <-  behav_pca_pooled %>%
   left_join(country_regionWelfare, by = "cntry") %>% 
   group_by(regionWelfare) %>%
   summarise(
@@ -970,8 +1099,9 @@ behav_pca_pooledWR <-  behav_pca_pooledsex %>%
 # Step 4: Bind analyses 
 
 behav_pca_score <- bind_rows(
-  behav_pca_pooledsex %>%  dplyr::select(cntry, pc1_behav, se, ci_l, ci_u, sex),
-  behav_pca_bysex %>% dplyr::select(cntry, pc1_behav, se, ci_l, ci_u, sex)
+  behav_pca_pooled %>%  dplyr::select(cntry, pc1_behav, se, ci_l, ci_u, sex, edustrat),
+  behav_pca_bysex %>% dplyr::select(cntry, pc1_behav, se, ci_l, ci_u, sex, edustrat),
+  behav_pca_byedu %>% dplyr::select(cntry, pc1_behav, se, ci_l, ci_u, sex, edustrat)
 )
 
 
@@ -1014,6 +1144,8 @@ if(cor_psych < 0){
   pca_psych$rotation[,1] <- -pca_psych$rotation[,1]
 }
 print(pca_psych)
+# Variance explained by each dimension
+(pca_psych$sdev^2)/sum(pca_psych$sdev^2) 
 
 # Merge the result of the PCA to the initial pca_df
 
@@ -1032,18 +1164,8 @@ pca_design_psych <- svydesign(
 
 # Step 3: Estimate means with confidence intervals
 
-#By sex
-psych_pca_bysex <- svyby( 
-  ~pc1_psych,
-  ~cntry + sex, 
-  pca_design_psych,
-  svymean,
-  na.rm = TRUE,
-  vartype = c("se", "ci")
-)
-
-#pooled sex 
-psych_pca_pooledsex <- svyby(
+#pooled
+psych_pca_pooled <- svyby(
   ~pc1_psych,
   ~cntry,
   pca_design_psych,
@@ -1052,15 +1174,40 @@ psych_pca_pooledsex <- svyby(
   vartype = c("se", "ci")
 ) %>% 
   as.data.frame() %>% 
-  mutate(sex = "All")   # add label so we can row-bind
+  mutate(sex = "All") %>%   # add label so we can row-bind 
+  mutate(edustrat = "All") 
+
+#By sex
+psych_pca_bysex <- svyby( 
+  ~pc1_psych,
+  ~cntry + sex, 
+  pca_design_psych,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)  %>% 
+  as.data.frame() %>% 
+  mutate(edustrat = "All") 
+
+#By edu
+psych_pca_byedu <- svyby( 
+  ~pc1_psych,
+  ~cntry + edustrat, 
+  pca_design_psych,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+)  %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All") 
 
 # Europe pooled (mean of countries)
 
-psych_pca_pooledCountry <- mean(psych_pca_pooledsex$pc1_psych, na.rm = TRUE)
+psych_pca_pooledCountry <- mean(psych_pca_pooled$pc1_psych, na.rm = TRUE)
 
 # WR pooled (mean of countries)
 
-psych_pca_pooledWR <-  psych_pca_pooledsex %>%
+psych_pca_pooledWR <-  psych_pca_pooled %>%
   left_join(country_regionWelfare, by = "cntry") %>% 
   group_by(regionWelfare) %>%
   summarise(
@@ -1071,8 +1218,9 @@ psych_pca_pooledWR <-  psych_pca_pooledsex %>%
 # Step 4: Bind analyses, and add region info back in (once per country) 
 
 psych_pca_score <- bind_rows(
-  psych_pca_pooledsex %>%  dplyr::select(cntry, pc1_psych, se, ci_l, ci_u, sex),
-  psych_pca_bysex %>% dplyr::select(cntry, pc1_psych, se, ci_l, ci_u, sex)
+  psych_pca_pooled %>%  dplyr::select(cntry, pc1_psych, se, ci_l, ci_u, sex, edustrat),
+  psych_pca_bysex %>% dplyr::select(cntry, pc1_psych, se, ci_l, ci_u, sex, edustrat),
+  psych_pca_byedu %>% dplyr::select(cntry, pc1_psych, se, ci_l, ci_u, sex, edustrat)
 )
 
 
@@ -1116,7 +1264,8 @@ if(cor_sc < 0){
   pca_sc$rotation[,1] <- -pca_sc$rotation[,1]
 }
 print(pca_sc)
-
+# Variance explained by each dimension
+(pca_sc$sdev^2)/sum(pca_sc$sdev^2) 
 
 # Merge pca_df_hc_scores to have the individual PC
 pca_df_sc_scores <- pca_df_sc %>% 
@@ -1135,18 +1284,8 @@ pca_design_sc <- svydesign(
 
 # Step 3: Estimate means with confidence intervals
 
-#By sex
-sc_pca_bysex <- svyby( 
-  ~pc1_sc,
-  ~cntry + sex, 
-  pca_design_sc,
-  svymean,
-  na.rm = TRUE,
-  vartype = c("se", "ci")
-)
-
-#pooled sex 
-sc_pca_pooledsex <- svyby(
+#pooled
+sc_pca_pooled <- svyby(
   ~pc1_sc,
   ~cntry,
   pca_design_sc,
@@ -1155,16 +1294,40 @@ sc_pca_pooledsex <- svyby(
   vartype = c("se", "ci")
 ) %>% 
   as.data.frame() %>% 
-  mutate(sex = "All")   # add label so we can row-bind
+  mutate(sex = "All") %>%   # add label so we can row-bind
+  mutate(edustrat = "All")
 
+#By sex
+sc_pca_bysex <- svyby( 
+  ~pc1_sc,
+  ~cntry + sex, 
+  pca_design_sc,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(edustrat = "All")
+
+#By edu
+sc_pca_byedu <- svyby( 
+  ~pc1_sc,
+  ~cntry + edustrat, 
+  pca_design_sc,
+  svymean,
+  na.rm = TRUE,
+  vartype = c("se", "ci")
+) %>% 
+  as.data.frame() %>% 
+  mutate(sex = "All") 
 
 # Europe pooled (mean of countries)
 
-sc_pca_pooledCountry <- mean(sc_pca_pooledsex$pc1_sc, na.rm = TRUE)
+sc_pca_pooledCountry <- mean(sc_pca_pooled$pc1_sc, na.rm = TRUE)
 
 # WR pooled (mean of countries)
 
-sc_pca_pooledWR <-  sc_pca_pooledsex %>%
+sc_pca_pooledWR <-  sc_pca_pooled %>%
   left_join(country_regionWelfare, by = "cntry") %>% 
   group_by(regionWelfare) %>%
   summarise(
@@ -1175,8 +1338,9 @@ sc_pca_pooledWR <-  sc_pca_pooledsex %>%
 # Step 4: Bind analyses, and add region info back in (once per country) 
 
 sc_pca_score <- bind_rows(
-  sc_pca_pooledsex %>%  dplyr::select(cntry, pc1_sc, se, ci_l, ci_u, sex),
-  sc_pca_bysex %>% dplyr::select(cntry, pc1_sc, se, ci_l, ci_u, sex)
+  sc_pca_pooled %>%  dplyr::select(cntry, pc1_sc, se, ci_l, ci_u, sex, edustrat),
+  sc_pca_bysex %>% dplyr::select(cntry, pc1_sc, se, ci_l, ci_u, sex, edustrat),
+  sc_pca_byedu %>% dplyr::select(cntry, pc1_sc, se, ci_l, ci_u, sex, edustrat)
 )
 
 sc_pca_score <- sc_pca_score %>% 
@@ -1200,8 +1364,8 @@ regime_spans <- edu_index_score %>%
 regime_spans_eduWR <- regime_spans %>% 
   left_join(edu_index_pooledWR, by = "regionWelfare")
 
-#plot
-ggplot(edu_index_score %>%  
+# plot by sex
+ggplot(edu_index_score[edu_index_score$edustrat=="All",] %>%  
          arrange(regionWelfare) %>% 
          mutate(cntry = factor(cntry, levels = unique(cntry))),
        aes(x = cntry, y = index_edu, ymin = ci_l, ymax = ci_u, color = sex)) + 
@@ -1235,8 +1399,16 @@ ggplot(edu_index_score %>%
         panel.background  = element_rect(fill = "white", color = NA),
         legend.position = "none")
 
+dir.create(
+  file.path(output_dir, "CompositeScores"),
+  recursive = TRUE,
+  showWarnings = FALSE
+)
 
-ggsave("Figures\\CompositeScores\\eduWR_psp.png", width = 6, height = 4, dpi = 300)
+ggsave(file.path(output_dir, "CompositeScores\\eduWR_psp_sex.png"), width = 6, height = 4, dpi = 300)
+
+# plot by edu
+# This plot does not have any sense
 ```
 
 ### Employment Conditions
@@ -1256,9 +1428,8 @@ regime_spans_workWR <- regime_spans %>%
   left_join(work_pca_pooledWR, by = "regionWelfare")
 
 
-#plot
-
-ggplot(work_pca_score %>% 
+# plot by sex
+ggplot(work_pca_score[work_pca_score$edustrat=="All",] %>% 
          arrange(regionWelfare) %>% 
          mutate(cntry = factor(cntry, levels = unique(cntry))),
        aes(x = cntry, y = pc1_work, ymin = ci_l, ymax = ci_u, color = sex)) + 
@@ -1274,13 +1445,6 @@ ggplot(work_pca_score %>%
     data = regime_spans_workWR,
     aes(x = x_start, xend = x_end, y = wr_mean_work, yend = wr_mean_work),
     inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
-  geom_segment( 
-    data = regime_spans,
-    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
-    inherit.aes = FALSE,
-    size = 1.2,
-    color = "grey40"
-  ) +
   coord_cartesian(ylim = c(-2, 2)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1293,9 +1457,38 @@ ggplot(work_pca_score %>%
         panel.background  = element_rect(fill = "white", color = NA),
         legend.position = "none")
 
+ggsave(file.path(output_dir, "CompositeScores\\workWR_psp_sex.png"), width = 6, height = 4, dpi = 300) 
 
+# plot by edu
+ggplot(work_pca_score[work_pca_score$sex=="All",] %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_work, ymin = ci_l, ymax = ci_u, color = edustrat)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(edustrat == "All", 1, 0.3)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "primary" = "red", "secondary" = "magenta", "tertiary" = "blue"),
+    breaks = c("All", "primary", "secondary", "tertiary")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = work_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_workWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_work, yend = wr_mean_work),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  coord_cartesian(ylim = c(-2, 2)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Employment disadvantage",
+    y = "Composite Employment Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
 
-ggsave("Figures\\CompositeScores\\workWR_psp.png", width = 6, height = 4, dpi = 300)
+ggsave(file.path(output_dir, "CompositeScores\\workWR_psp_edu.png"), width = 6, height = 4, dpi = 300) 
 ```
 
 ### Material
@@ -1314,8 +1507,8 @@ regime_spans_matWR <- regime_spans %>%
   left_join(mat_pca_pooledWR, by = "regionWelfare")
 
 
-#plot
-ggplot(mat_pca_score %>% 
+#plot by sex
+ggplot(mat_pca_score[mat_pca_score$edustrat=="All",] %>% 
          arrange(regionWelfare) %>% 
          mutate(cntry = factor(cntry, levels = unique(cntry))),
        aes(x = cntry, y = pc1_mat, ymin = ci_l, ymax = ci_u, color = sex)) + 
@@ -1331,13 +1524,6 @@ ggplot(mat_pca_score %>%
     data = regime_spans_matWR,
     aes(x = x_start, xend = x_end, y = wr_mean_mat, yend = wr_mean_mat),
     inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
-  geom_segment( 
-    data = regime_spans,
-    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
-    inherit.aes = FALSE,
-    linewidth = 1.2,
-    color = "grey40"
-  ) +
   coord_cartesian(ylim = c(-1.5, 1.5)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1350,13 +1536,43 @@ ggplot(mat_pca_score %>%
         panel.background  = element_rect(fill = "white", color = NA),
         legend.position = "none")
 
-ggsave("Figures\\CompositeScores\\matWR_psp.png", width = 6, height = 4, dpi = 300)
+ggsave(file.path(output_dir, "CompositeScores\\matWR_psp_sex.png"), width = 6, height = 4, dpi = 300) 
+
+# plot by edu
+ggplot(mat_pca_score[mat_pca_score$sex=="All",] %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_mat, ymin = ci_l, ymax = ci_u, color = edustrat)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(edustrat == "All", 1, 0.3)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "primary" = "red", "secondary" = "magenta", "tertiary" = "blue"),
+    breaks = c("All", "primary", "secondary", "tertiary")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = mat_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_matWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_mat, yend = wr_mean_mat),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  coord_cartesian(ylim = c(-2, 2)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Comparison of Material risk",
+    y = "Composite Material Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave(file.path(output_dir, "CompositeScores\\matWR_psp_edu.png"), width = 6, height = 4, dpi = 300) 
 ```
 
 ### HC access
 
 ```{r}
-
 # Get positions of countries per regime
 regime_spans <- hc_pca_score %>%
   arrange(regionWelfare, cntry) %>%
@@ -1369,9 +1585,8 @@ regime_spans <- hc_pca_score %>%
 regime_spans_hcWR <- regime_spans %>% 
   left_join(hc_pca_pooledWR, by = "regionWelfare")
 
-
-#plot
-ggplot(hc_pca_score %>% 
+# plot by sex
+ggplot(hc_pca_score[hc_pca_score$edustrat=="All",] %>% 
          arrange(regionWelfare) %>% 
          mutate(cntry = factor(cntry, levels = unique(cntry))),
        aes(x = cntry, y = pc1_hc, ymin = ci_l, ymax = ci_u, color = sex)) + 
@@ -1387,13 +1602,6 @@ ggplot(hc_pca_score %>%
     data = regime_spans_hcWR,
     aes(x = x_start, xend = x_end, y = wr_mean_hc, yend = wr_mean_hc),
     inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
-  geom_segment( 
-    data = regime_spans,
-    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
-    inherit.aes = FALSE,
-    size = 1.2,
-    color = "grey40"
-  ) +
   coord_cartesian(ylim = c(-1.5, 1.5)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1406,8 +1614,38 @@ ggplot(hc_pca_score %>%
         panel.background  = element_rect(fill = "white", color = NA),
         legend.position = "none")
 
+ggsave(file.path(output_dir, "CompositeScores\\HCWR_psp_260519_sex.png"), width = 6, height = 4, dpi = 300)
 
-ggsave("Figures\\CompositeScores\\HCWR_psp.png", width = 6, height = 4, dpi = 300)
+# plot by edu
+ggplot(hc_pca_score[hc_pca_score$sex=="All",] %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_hc, ymin = ci_l, ymax = ci_u, color = edustrat)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(edustrat == "All", 1, 0.3)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "primary" = "red", "secondary" = "magenta", "tertiary" = "blue"),
+    breaks = c("All", "primary", "secondary", "tertiary")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = hc_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_hcWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_hc, yend = wr_mean_hc),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  coord_cartesian(ylim = c(-2, 2)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Healthcare access disadvantage", 
+    y = "Composite Healthcare access Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave(file.path(output_dir, "CompositeScores\\HCWR_psp_260519_edu.png"), width = 6, height = 4, dpi = 300)
 ```
 
 ### Behavioural
@@ -1425,9 +1663,8 @@ regime_spans <- behav_pca_score %>%
 regime_spans_behavWR <- regime_spans %>% 
   left_join(behav_pca_pooledWR, by = "regionWelfare")
 
-
-#plot
-ggplot(behav_pca_score %>% 
+# plot by sex
+ggplot(behav_pca_score[behav_pca_score$edustrat=="All",] %>% 
          arrange(regionWelfare) %>% 
          mutate(cntry = factor(cntry, levels = unique(cntry))),
        aes(x = cntry, y = pc1_behav, ymin = ci_l, ymax = ci_u, color = sex)) + 
@@ -1443,13 +1680,6 @@ ggplot(behav_pca_score %>%
     data = regime_spans_behavWR,
     aes(x = x_start, xend = x_end, y = wr_mean_behav, yend = wr_mean_behav),
     inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
-  geom_segment( 
-    data = regime_spans,
-    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55),
-    inherit.aes = FALSE,
-    size = 1.2,
-    color = "grey40"
-  ) +
   coord_cartesian(ylim = c(-1.5, 1.5)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1462,7 +1692,38 @@ ggplot(behav_pca_score %>%
         panel.background  = element_rect(fill = "white", color = NA),
         legend.position = "none")
 
-ggsave("Figures\\CompositeScores\\BehavWR_psp.png", width = 6, height = 4, dpi = 300)
+ggsave(file.path(output_dir, "CompositeScores\\BehavWR_psp_sex.png"), width = 6, height = 4, dpi = 300) 
+
+# plot by edu
+ggplot(behav_pca_score[behav_pca_score$sex=="All",] %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_behav, ymin = ci_l, ymax = ci_u, color = edustrat)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(edustrat == "All", 1, 0.3)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "primary" = "red", "secondary" = "magenta", "tertiary" = "blue"),
+    breaks = c("All", "primary", "secondary", "tertiary")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = behav_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_behavWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_behav, yend = wr_mean_behav),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  coord_cartesian(ylim = c(-2, 2)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Behavioural disadvantage", 
+    y = "Composite Behavioural Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave(file.path(output_dir, "CompositeScores\\BehavWR_psp_edu.png"), width = 6, height = 4, dpi = 300) 
 ```
 
 ### Psychosocial
@@ -1480,8 +1741,8 @@ regime_spans <- psych_pca_score %>%
 regime_spans_psychWR <- regime_spans %>% 
   left_join(psych_pca_pooledWR, by = "regionWelfare")
 
-#plot
-ggplot(psych_pca_score %>% 
+# plot by sex
+ggplot(psych_pca_score[psych_pca_score$edustrat=="All",] %>% 
          arrange(regionWelfare) %>% 
          mutate(cntry = factor(cntry, levels = unique(cntry))),
        aes(x = cntry, y = pc1_psych, ymin = ci_l, ymax = ci_u, color = sex)) + 
@@ -1497,13 +1758,6 @@ ggplot(psych_pca_score %>%
     data = regime_spans_psychWR,
     aes(x = x_start, xend = x_end, y = wr_mean_psych, yend = wr_mean_psych),
     inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
-  geom_segment( 
-    data = regime_spans,
-    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
-    inherit.aes = FALSE,
-    size = 1.2,
-    color = "grey40"
-  ) +
   coord_cartesian(ylim = c(-1.5, 1.5)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1516,7 +1770,38 @@ ggplot(psych_pca_score %>%
         panel.background  = element_rect(fill = "white", color = NA),
         legend.position = "none")
 
-ggsave("Figures\\CompositeScores\\psychWR_psp.png", width = 6, height = 4, dpi = 300)
+ggsave(file.path(output_dir, "CompositeScores\\psychWR_psp_sex.png"), width = 6, height = 4, dpi = 300) 
+
+# plot by edu
+ggplot(psych_pca_score[psych_pca_score$sex=="All",] %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_psych, ymin = ci_l, ymax = ci_u, color = edustrat)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(edustrat == "All", 1, 0.3)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "primary" = "red", "secondary" = "magenta", "tertiary" = "blue"),
+    breaks = c("All", "primary", "secondary", "tertiary")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = psych_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_psychWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_psych, yend = wr_mean_psych),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  coord_cartesian(ylim = c(-2, 2)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Psychosocial disadvantage", 
+    y = "Composite Psychosocial Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave(file.path(output_dir, "CompositeScores\\psychWR_psp_edu.png"), width = 6, height = 4, dpi = 300) 
 ```
 
 ### Social Capital
@@ -1533,9 +1818,8 @@ regime_spans <- sc_pca_score %>%
 regime_spans_scWR <- regime_spans %>% 
   left_join(sc_pca_pooledWR, by = "regionWelfare")
 
-#plot
-
-ggplot(sc_pca_score %>% 
+# plot by sex
+ggplot(sc_pca_score[sc_pca_score$edustrat=="All",] %>% 
          arrange(regionWelfare) %>% 
          mutate(cntry = factor(cntry, levels = unique(cntry))),
        aes(x = cntry, y = pc1_sc, ymin = ci_l, ymax = ci_u, color = sex)) + 
@@ -1551,13 +1835,6 @@ ggplot(sc_pca_score %>%
     data = regime_spans_scWR,
     aes(x = x_start, xend = x_end, y = wr_mean_sc, yend = wr_mean_sc),
     inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
-  geom_segment( 
-    data = regime_spans,
-    aes(x = x_start, xend = x_end, y = -1.55, yend = -1.55), 
-    inherit.aes = FALSE,
-    size = 1.2,
-    color = "grey40"
-  ) +
   coord_cartesian(ylim = c(-1.7, 1.7)) +
   theme_minimal(base_size = 13) +
   labs(
@@ -1570,7 +1847,38 @@ ggplot(sc_pca_score %>%
         panel.background  = element_rect(fill = "white", color = NA),
         legend.position = "none")
 
-ggsave("Figures\\CompositeScores\\SCWR_psp.png", width = 6, height = 4, dpi = 300)
+ggsave(file.path(output_dir, "CompositeScores\\scWR_psp_sex.png"), width = 6, height = 4, dpi = 300)
+
+# plot by edu
+ggplot(sc_pca_score[sc_pca_score$sex=="All",] %>% 
+         arrange(regionWelfare) %>% 
+         mutate(cntry = factor(cntry, levels = unique(cntry))),
+       aes(x = cntry, y = pc1_sc, ymin = ci_l, ymax = ci_u, color = edustrat)) + 
+  geom_pointrange(size = 0.28,
+                  aes(alpha = ifelse(edustrat == "All", 1, 0.3)) ) +
+  scale_color_manual(
+    values = c("All" = "black", "primary" = "red", "secondary" = "magenta", "tertiary" = "blue"),
+    breaks = c("All", "primary", "secondary", "tertiary")
+  ) +
+  scale_alpha_identity() +  
+  geom_hline(yintercept = sc_pca_pooledCountry, linetype = "dotted", color = "black") +
+  geom_segment(
+    data = regime_spans_scWR,
+    aes(x = x_start, xend = x_end, y = wr_mean_sc, yend = wr_mean_sc),
+    inherit.aes = F, linetype = "11", linewidth = 0.7, color = "blue")  +
+  coord_cartesian(ylim = c(-2, 2)) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Social Capital disadvantage",
+    y = "Composite Social Capital Score (PCA)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank(),
+        plot.background   = element_rect(fill = "white", color = NA),
+        panel.background  = element_rect(fill = "white", color = NA),
+        legend.position = "none")
+
+ggsave(file.path(output_dir, "CompositeScores\\scWR_psp_edu.png"), width = 6, height = 4, dpi = 300)
 ```
 
 ## SPIDER-PLOTS: PCA
@@ -1640,19 +1948,19 @@ allWR_pca_numeric <- allWR_pca_score %>%
 
 # clean _pca_score dataframes to only leave cntry and pca score
 
-edu_index_tomerge <- edu_index_pooledsex %>% 
+edu_index_tomerge <- edu_index_pooled %>% 
   dplyr::select(cntry, index_edu)
-work_pca_tomerge <- work_pca_pooledsex %>% 
+work_pca_tomerge <- work_pca_pooled %>% 
   dplyr::select(cntry, pc1_work)
-mat_pca_tomerge <- mat_pca_pooledsex %>% 
+mat_pca_tomerge <- mat_pca_pooled %>% 
   dplyr::select(cntry, pc1_mat)
-hc_pca_tomerge <- hc_pca_pooledsex %>% 
+hc_pca_tomerge <- hc_pca_pooled %>% 
   dplyr::select(cntry, pc1_hc)
-behav_pca_tomerge <- behav_pca_pooledsex %>% 
+behav_pca_tomerge <- behav_pca_pooled %>% 
   dplyr::select(cntry, pc1_behav)
-psych_pca_tomerge <- psych_pca_pooledsex %>% 
+psych_pca_tomerge <- psych_pca_pooled %>% 
   dplyr::select(cntry, pc1_psych)
-sc_pca_tomerge <- sc_pca_pooledsex %>% 
+sc_pca_tomerge <- sc_pca_pooled %>% 
   dplyr::select(cntry, pc1_sc)
 
 # merge all _pca_score into a new dataframe 
@@ -1690,6 +1998,12 @@ pca_min_val <- sapply(all_pca_numeric[pca_spider_vars], min, na.rm = TRUE)
 ### Country plots
 
 ```{r}
+dir.create(
+  file.path(output_dir, "pca_per_country_spider"),
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
 # Loop
 for (country in country_list) {
   
@@ -1736,7 +2050,7 @@ for (country in country_list) {
   Sys.sleep(1)  
   
   # Saving plot to PNG
-  png(filename = paste0("Figures\\pca_per_country_spider\\Spiderplot_", country, ".png"), width = 600, height = 600)
+  png(filename = file.path(output_dir, "pca_per_country_spider", paste0("Spiderplot_", country, ".png")),  width = 600, height = 600)
   par(mar = c(1, 2, 3, 2))  
   radarchart(radarPCA_df,
              axistype = 1,
@@ -1787,7 +2101,7 @@ radarchart(radarPCA_empty_df,
            vlcex = 1)
 
 # Saving plot to PNG
-png(filename = paste0("Figures\\pca_per_country_spider\\Spiderplot_Empty.png"), width = 600, height = 600)
+ png(filename = file.path(output_dir, "pca_per_country_spider", paste0("Spiderplot_Empty.png")),  width = 600, height = 600)
 par(mar = c(1, 2, 2, 2))  
 radarchart(radarPCA_empty_df,
            axistype = 1,
@@ -1848,7 +2162,7 @@ for (WR in WR_list) {
   Sys.sleep(1)
   
   # Saving plot to PNG
-  png(filename = paste0("Figures\\pca_per_country_spider\\Spiderplot_", WR, ".png"), width = 600, height = 600)
+   png(filename = file.path(output_dir, "pca_per_country_spider", paste0("Spiderplot_", WR, ".png")),  width = 600, height = 600)
   par(mar = c(1, 2, 3, 2))
   radarchart(radarPCA_WR_df,
              axistype = 1,
@@ -1894,10 +2208,72 @@ labels_colors(clust_all_pca_dendro) <- ifelse(labels(clust_all_pca_dendro) %in% 
 plot(clust_all_pca_dendro,
      xlab = "", ylab = "", sub = "")
 
-png("Figures\\Cluster\\Cluster_Ward_D2.png", width = 800, height = 600)
+dir.create(
+  file.path(output_dir, "Cluster"),
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+png( file.path(output_dir,"Cluster\\Cluster_Ward_D2.png"), width = 800, height = 600) 
 plot(clust_all_pca_dendro,
      xlab = "", ylab = "", sub = "")
 dev.off()
+```
+
+## Agreement between data-based and theoretical clusters
+```{r}
+clusters5 <- cutree(clust_all_pca, k = 6)
+# Remove Ukraine, which is isolated in a single cluster
+# Once Ukraine is removed there are 5 clusters left
+clusters5[29]<-NA
+
+# Create a dataframe linking countries to their empirical clusters
+cluster_results5 <- data.frame(
+  cntry = names(clusters5),
+  cluster = as.integer(clusters5)
+)
+
+# Get theoretical welfare regime for each country
+cluster_theory5 <- ESS11RecEu %>% 
+  distinct(cntry, regionWelfare) %>% 
+  mutate(regionWelfare = as.numeric(regionWelfare)) %>% 
+  dplyr::select(cntry, regionWelfare)
+
+cluster_comparison5 <- data.frame(cntry = names(clusters5), cluster = as.integer(clusters5)) %>%
+  left_join(cluster_theory5, by = "cntry")
+
+table(factor(cluster_comparison5$cluster,levels=c(3,1,2,4,5)), cluster_comparison5$regionWelfare)
+
+kappa_result5 <- irr::kappa2(
+   data.frame(
+     theoretical = factor(cluster_comparison5$regionWelfare),
+     empirical = as.numeric(factor(cluster_comparison5$cluster,levels=c(3,1,2,4,5)))
+   ),
+   weight = "unweighted"
+ )
+kappa_result5
+
+# Comparison with 6 theoretical clusters including the Balcan peninsula as a separate region
+clusters6 <- cutree(clust_all_pca, k = 7)
+clusters6[29] <- NA
+
+# Theoretical clusters including the Balcan peninsula, group 6.
+cluster_theory6 <- cluster_theory5
+cluster_theory6[c(3,12,13,20,25,27),2] <- 6
+
+cluster_comparison6 <- data.frame(cntry = names(clusters6), cluster = as.integer(clusters6)) %>%
+  left_join(cluster_theory6, by = "cntry")
+
+table(factor(cluster_comparison6$cluster,levels=c(4,1,2,5,6,3)), cluster_comparison6$regionWelfare)
+
+kappa_result6 <- irr::kappa2(
+   data.frame(
+     theoretical = factor(cluster_comparison6$regionWelfare),
+     empirical = as.numeric(factor(cluster_comparison6$cluster,levels=c(4,1,2,5,6,3)))
+   ),
+   weight = "unweighted"
+ )
+kappa_result6
 ```
 
 ## ANOVA
@@ -1913,78 +2289,77 @@ all_pca_score_WR$regionWelfare <- as.factor(all_pca_score_WR$regionWelfare)
 
 ```{r}
 aov_edu <- aov(index_edu ~ regionWelfare, data = all_pca_score_WR)
+eta_squared(aov_edu) #### effect size
+emmeans(aov_edu, ~ regionWelfare) # Group estimates and their CI
 
 shapiro.test(residuals(aov_edu)) 
 leveneTest(index_edu ~ regionWelfare, data = all_pca_score_WR) 
-
-summary(aov_edu) 
 ```
 
 ### Employment Conditions
 
 ```{r}
 aov_work <- aov(pc1_work ~ regionWelfare, data = all_pca_score_WR) 
+eta_squared(aov_work) 
+emmeans(aov_work, ~ regionWelfare) 
 
 shapiro.test(residuals(aov_work)) 
 leveneTest(pc1_work ~ regionWelfare, data = all_pca_score_WR) 
-
-summary(aov_work) 
 ```
-
 
 ### Material
 
 ```{r}
 aov_mat <- aov(pc1_mat ~ regionWelfare, data = all_pca_score_WR) 
+eta_squared(aov_mat) 
+emmeans(aov_mat, ~ regionWelfare) 
 
 shapiro.test(residuals(aov_mat)) 
 leveneTest(pc1_mat ~ regionWelfare, data = all_pca_score_WR)
-
-summary(aov_mat) 
 ```
 
 ### Healthcare
 
 ```{r}
 aov_hc <- aov(pc1_hc ~ regionWelfare, data = all_pca_score_WR) 
+eta_squared(aov_hc) 
+emmeans(aov_hc, ~ regionWelfare) 
 
 shapiro.test(residuals(aov_hc)) 
 leveneTest(pc1_hc ~ regionWelfare, data = all_pca_score_WR) 
-
-summary(aov_hc) 
 ```
 
 ### Behavioural
 
 ```{r}
 aov_behav <- aov(pc1_behav ~ regionWelfare, data = all_pca_score_WR) 
+eta_squared(aov_behav) 
+emmeans(aov_behav, ~ regionWelfare) 
 
 shapiro.test(residuals(aov_behav)) 
-leveneTest(pc1_behav ~ regionWelfare, data = all_pca_score_WR) 
+# Normality does not hold
 
-aov_behav <- kruskal.test(pc1_behav ~ regionWelfare, 
-                         data = all_pca_score_WR)
-summary(aov_behav) 
+kruskal.test(pc1_behav ~ regionWelfare, data = all_pca_score_WR)
 ```
 
 ### Psychosocial
 
 ```{r}
 aov_psych <-aov(pc1_psych ~ regionWelfare, data = all_pca_score_WR) 
+eta_squared(aov_psych) 
+emmeans(aov_psych, ~ regionWelfare) 
 
 shapiro.test(residuals(aov_psych)) 
 leveneTest(pc1_psych ~ regionWelfare, data = all_pca_score_WR) 
-
-summary(aov_psych) 
 ```
 
 ### Social Capital
 
 ```{r}
 aov_sc <- aov(pc1_sc ~ regionWelfare, data = all_pca_score_WR) 
+eta_squared(aov_sc) 
+emmeans(aov_sc, ~ regionWelfare) 
 
 shapiro.test(residuals(aov_sc)) 
 leveneTest(pc1_sc ~ regionWelfare, data = all_pca_score_WR) 
-
-summary(aov_sc) 
 ```
